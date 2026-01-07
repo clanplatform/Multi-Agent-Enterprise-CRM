@@ -10,6 +10,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-black?logo=next.js)](https://nextjs.org/)
+[![Status](https://img.shields.io/badge/Status-Under%20Development-orange?style=flat)]()
 
 <br/>
 
@@ -482,12 +483,23 @@ We welcome contributions! Please see our contributing guidelines:
 
 ---
 
-## 📈 Roadmap
+## � Project Status
 
-- [ ] **Q1 2025** - Multi-LLM Support (GPT-4, Claude, Gemini)
-- [ ] **Q2 2025** - Advanced Analytics Dashboard
-- [ ] **Q3 2025** - Mobile Application (React Native)
-- [ ] **Q4 2025** - Marketplace for Custom Agents
+> [!IMPORTANT]
+> **This project is currently under active development.** Some features may be incomplete or subject to change. We welcome contributions and feedback!
+
+---
+
+## 🔮 Future Scope
+
+| Timeline | Feature | Description |
+|----------|---------|-------------|
+| **Q2 2026** | Multi-LLM Support | Integration with GPT-4, Claude, Gemini for flexible AI backends |
+| **Q3 2026** | Advanced Analytics Dashboard | Real-time business intelligence with custom reporting |
+| **Q4 2026** | Mobile Application | Cross-platform mobile app using React Native |
+| **Q1 2027** | Agent Marketplace | Community marketplace for sharing and discovering custom agents |
+| **Q2 2027** | Voice Interface | Natural language voice commands for hands-free CRM operations |
+| **Q3 2027** | Workflow Automation Studio | Visual drag-and-drop workflow builder |
 
 ---
 
