@@ -14,7 +14,7 @@
 
 <br/>
 
-<img src="https://raw.githubusercontent.com/github/explore/main/topics/artificial-intelligence/artificial-intelligence.png" width="120" alt="AI" />
+<img src="./assets/readme.png" width="200" alt="Multi-Agent Enterprise CRM" />
 
 **A production-grade, AI-native CRM system where intelligent agents work alongside humans to automate sales, support, and compliance workflows.**
 
