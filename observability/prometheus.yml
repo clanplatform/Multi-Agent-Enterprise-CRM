@@ -1,0 +1,61 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Gateway metrics
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['gateway:4000']
+    metrics_path: /metrics
+
+  # Leads service
+  - job_name: 'leads-service'
+    static_configs:
+      - targets: ['leads-service:5001']
+    metrics_path: /metrics
+
+  # Deals service
+  - job_name: 'deals-service'
+    static_configs:
+      - targets: ['deals-service:5002']
+    metrics_path: /metrics
+
+  # Tickets service
+  - job_name: 'tickets-service'
+    static_configs:
+      - targets: ['tickets-service:5003']
+    metrics_path: /metrics
+
+  # Customers service
+  - job_name: 'customers-service'
+    static_configs:
+      - targets: ['customers-service:5004']
+    metrics_path: /metrics
+
+  # AI Agents
+  - job_name: 'agents'
+    static_configs:
+      - targets: ['agents:5010']
+    metrics_path: /metrics
+
+  # Kafka
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9092']
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+
+  # PostgreSQL
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+
+  # OPA
+  - job_name: 'opa'
+    static_configs:
+      - targets: ['opa:8181']
+    metrics_path: /metrics
