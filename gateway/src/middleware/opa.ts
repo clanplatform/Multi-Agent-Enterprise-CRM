@@ -3,8 +3,13 @@ import axios from 'axios';
 import { AuthenticatedRequest } from './auth';
 import { forbidden } from './errorHandler';
 import { logger } from '../utils/logger';
+import { cache } from '../services/redis';
+import { computePolicyHash, computeRolesHash, secureCache } from '../services/secureCache';
+import { authRecheckLatencyMs, cacheFailClosedTotal, cacheHitTotal, cacheMissTotal } from '../services/metrics';
 
 const OPA_URL = process.env.OPA_URL || 'http://localhost:8181';
+const OPA_CACHE_POLICY_ID = 'enterprise_crm/http_authz';
+const OPA_CACHE_TTL_SECONDS = parseInt(process.env.OPA_CACHE_TTL_SECONDS || '30', 10);
 
 interface OpaInput {
   tenant_id: string;
@@ -45,8 +50,9 @@ export const opaMiddleware = async (
     const action = buildAction(req.method, req.path);
     
     // Build OPA input
+    const subjectTenantId = (req.headers['x-token-tenant-id'] as string) || req.tenantId || '';
     const input: OpaInput = {
-      tenant_id: req.tenantId || '',
+      tenant_id: subjectTenantId,
       user: {
         id: req.user?.sub || '',
         roles: req.user?.roles || [],
@@ -64,8 +70,42 @@ export const opaMiddleware = async (
     
     logger.debug('OPA policy check', { action, resource: input.resource.type });
     
-    // Query OPA
+    const canUseCache = req.method === 'GET' && input.user.id && subjectTenantId && OPA_CACHE_TTL_SECONDS > 0;
+    if (canUseCache) {
+      try {
+        const rolesHash = computeRolesHash(input.user.roles);
+        const policyHash = computePolicyHash({
+          tenant_id: input.tenant_id,
+          user: { id: input.user.id, roles_hash: rolesHash },
+          action: input.action,
+          resource: { type: input.resource.type, id: input.resource.id, tenant_id: input.resource.tenant_id },
+        });
+        const epochs = await secureCache.getEpochs(subjectTenantId, OPA_CACHE_POLICY_ID, input.user.id);
+        const key = secureCache.buildKey({
+          tenantId: subjectTenantId,
+          policyId: OPA_CACHE_POLICY_ID,
+          epochs,
+          userId: input.user.id,
+          rolesHash,
+          policyHash,
+          resource: `opa:${input.action}:${input.resource.type}:${input.resource.id || ''}:${input.resource.tenant_id || ''}`,
+        });
+        const cached = await cache.get<OpaResult>(key);
+        if (cached) {
+          cacheHitTotal.labels(subjectTenantId, 'opa').inc();
+          if (!cached.allow) throw forbidden(cached.deny?.join('; ') || 'Access denied by policy');
+          if (cached.requires_approval) req.headers['x-requires-approval'] = 'true';
+          return next();
+        }
+        cacheMissTotal.labels(subjectTenantId, 'opa').inc();
+      } catch (error) {
+        logger.warn('OPA cache read failed', { error: (error as Error)?.message });
+      }
+    }
+
+    const t0 = Date.now();
     const result = await queryOpa(input);
+    authRecheckLatencyMs.labels('gateway_opa').observe(Date.now() - t0);
     
     if (!result.allow) {
       const denyReasons = result.deny?.join('; ') || 'Access denied by policy';
@@ -82,12 +122,38 @@ export const opaMiddleware = async (
       // Add header to indicate approval is needed
       req.headers['x-requires-approval'] = 'true';
     }
+
+    if (canUseCache) {
+      try {
+        const rolesHash = computeRolesHash(input.user.roles);
+        const policyHash = computePolicyHash({
+          tenant_id: input.tenant_id,
+          user: { id: input.user.id, roles_hash: rolesHash },
+          action: input.action,
+          resource: { type: input.resource.type, id: input.resource.id, tenant_id: input.resource.tenant_id },
+        });
+        const epochs = await secureCache.getEpochs(subjectTenantId, OPA_CACHE_POLICY_ID, input.user.id);
+        const key = secureCache.buildKey({
+          tenantId: subjectTenantId,
+          policyId: OPA_CACHE_POLICY_ID,
+          epochs,
+          userId: input.user.id,
+          rolesHash,
+          policyHash,
+          resource: `opa:${input.action}:${input.resource.type}:${input.resource.id || ''}:${input.resource.tenant_id || ''}`,
+        });
+        await cache.set(key, result, OPA_CACHE_TTL_SECONDS);
+      } catch (error) {
+        logger.warn('OPA cache write failed', { error: (error as Error)?.message });
+      }
+    }
     
     next();
   } catch (error) {
     // If OPA is unavailable, fail closed (deny)
     if (axios.isAxiosError(error) && !error.response) {
       logger.error('OPA unavailable, failing closed');
+      cacheFailClosedTotal.labels('gateway_opa', 'opa_unavailable').inc();
       next(forbidden('Policy engine unavailable'));
     } else {
       next(error);
@@ -99,9 +165,9 @@ async function queryOpa(input: OpaInput): Promise<OpaResult> {
   try {
     // Query multiple policies and combine results
     const [tenantResult, rbacResult, abacResult] = await Promise.all([
-      queryOpaPolicy('crm/tenant', input),
-      queryOpaPolicy('crm/rbac', input),
-      queryOpaPolicy('crm/abac', input),
+      queryOpaPolicy('enterprise_crm/tenant_isolation', input),
+      queryOpaPolicy('enterprise_crm/rbac', input),
+      queryOpaPolicy('enterprise_crm/abac', input),
     ]);
     
     // Combine deny messages
@@ -142,9 +208,8 @@ async function queryOpaPolicy(policy: string, input: OpaInput): Promise<OpaResul
     return response.data.result || { allow: true };
   } catch (error) {
     if (axios.isAxiosError(error) && error.response?.status === 404) {
-      // Policy not found, allow by default (but log warning)
-      logger.warn(`OPA policy not found: ${policy}`);
-      return { allow: true };
+      logger.error(`OPA policy not found: ${policy}`);
+      return { allow: false, deny: [`Policy not found: ${policy}`] };
     }
     throw error;
   }

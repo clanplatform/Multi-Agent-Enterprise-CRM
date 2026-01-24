@@ -22,10 +22,17 @@ import ticketsRoutes from './routes/tickets';
 import customersRoutes from './routes/customers';
 import approvalsRoutes from './routes/approvals';
 import agentsRoutes from './routes/agents';
+import replayRoutes from './routes/replay';
+import aggregatesRoutes from './routes/aggregates';
+import governanceRoutes from './routes/governance';
+import securityRoutes from './routes/security';
 
 import { setupWebSocket } from './services/websocket';
 import { kafkaProducer } from './services/kafka';
 import { setupMetrics } from './services/metrics';
+import { startApprovalsRequiredIngestor } from './consumers/approvalsRequired';
+import { startAuditEventsIngestor } from './consumers/auditEvents';
+import { startCacheInvalidationConsumer } from './consumers/cacheInvalidation';
 
 const app: Application = express();
 const PORT = process.env.GATEWAY_PORT || 4000;
@@ -106,6 +113,10 @@ app.use('/api/v1/tickets', ticketsRoutes);
 app.use('/api/v1/customers', customersRoutes);
 app.use('/api/v1/approvals', approvalsRoutes);
 app.use('/api/v1/agents', agentsRoutes);
+app.use('/api/v1/replay', replayRoutes);
+app.use('/api/v1/aggregates', aggregatesRoutes);
+app.use('/api/v1/governance', governanceRoutes);
+app.use('/api/v1/security', securityRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
@@ -136,6 +147,16 @@ const shutdown = async () => {
     client.close(1001, 'Server shutting down');
   });
   
+  if ((global as any).__approvalsIngestorStop) {
+    await (global as any).__approvalsIngestorStop();
+  }
+  if ((global as any).__auditIngestorStop) {
+    await (global as any).__auditIngestorStop();
+  }
+  if ((global as any).__cacheInvalidationStop) {
+    await (global as any).__cacheInvalidationStop();
+  }
+
   // Disconnect Kafka
   await kafkaProducer.disconnect();
   
@@ -161,6 +182,16 @@ const startServer = async () => {
     // Connect to Kafka
     await kafkaProducer.connect();
     logger.info('Connected to Kafka');
+
+    if (process.env.ENABLE_APPROVAL_EVENT_INGESTOR !== 'false') {
+      (global as any).__approvalsIngestorStop = await startApprovalsRequiredIngestor();
+    }
+    if (process.env.ENABLE_AUDIT_EVENT_INGESTOR !== 'false') {
+      (global as any).__auditIngestorStop = await startAuditEventsIngestor();
+    }
+    if (process.env.ENABLE_CACHE_INVALIDATION_CONSUMER !== 'false') {
+      (global as any).__cacheInvalidationStop = await startCacheInvalidationConsumer();
+    }
     
     server.listen(PORT, () => {
       logger.info(`API Gateway running on port ${PORT}`);
@@ -172,6 +203,8 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (!process.env.JEST_WORKER_ID) {
+  startServer();
+}
 
 export default app;

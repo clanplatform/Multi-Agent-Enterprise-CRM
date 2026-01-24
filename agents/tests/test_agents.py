@@ -13,7 +13,7 @@ class TestSalesAgent:
     
     @pytest.fixture
     def sales_agent(self):
-        from src.agents.sales import SalesAgent
+        from agents.sales import SalesAgent
         agent = SalesAgent()
         agent.producer = AsyncMock()
         agent.http_client = AsyncMock()
@@ -115,7 +115,7 @@ class TestSupportAgent:
     
     @pytest.fixture
     def support_agent(self):
-        from src.agents.support import SupportAgent
+        from agents.support import SupportAgent
         agent = SupportAgent()
         agent.producer = AsyncMock()
         agent.http_client = AsyncMock()
@@ -164,7 +164,7 @@ class TestComplianceAgent:
     
     @pytest.fixture
     def compliance_agent(self):
-        from src.agents.compliance import ComplianceAgent
+        from agents.compliance import ComplianceAgent
         agent = ComplianceAgent()
         agent.producer = AsyncMock()
         return agent
@@ -232,7 +232,7 @@ class TestAnalyticsAgent:
     
     @pytest.fixture
     def analytics_agent(self):
-        from src.agents.analytics import AnalyticsAgent
+        from agents.analytics import AnalyticsAgent
         agent = AnalyticsAgent()
         agent.producer = AsyncMock()
         return agent

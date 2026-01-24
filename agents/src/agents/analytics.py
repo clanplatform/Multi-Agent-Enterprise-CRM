@@ -191,7 +191,7 @@ Provide forecast in JSON format:
 """
 
         try:
-            response = await self.call_llm(prompt)
+            response = await self.call_llm(prompt, tenant_id=tenant_id)
             result = self._parse_json_response(response)
             
             return {"status": "completed", "forecast": result}

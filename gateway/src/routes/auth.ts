@@ -9,11 +9,13 @@ import { redisClient } from '../services/redis';
 import { logger } from '../utils/logger';
 
 const router = Router();
+const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
 
 // Login
 router.post('/login',
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 8 }),
+  body('tenantSlug').isLength({ min: 2, max: 50 }),
   async (req: Request, res: Response, next) => {
     try {
       const errors = validationResult(req);
@@ -21,36 +23,54 @@ router.post('/login',
         throw badRequest('Validation failed', errors.array());
       }
       
-      const { email, password } = req.body;
-      
-      // Find user
-      const user = await prisma.user.findFirst({
-        where: { email },
-        include: {
-          userRoles: {
-            include: { role: true },
+      const { email, password, tenantSlug } = req.body;
+
+      const { user, roles } = await prisma.$transaction(async (db) => {
+        await db.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${SYSTEM_TENANT_ID}'`);
+
+        const tenant = await db.tenant.findUnique({
+          where: { slug: tenantSlug },
+        });
+
+        if (!tenant) {
+          throw unauthorized('Invalid credentials');
+        }
+
+        await db.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${tenant.id}'`);
+
+        const user = await db.user.findFirst({
+          where: { email, tenantId: tenant.id },
+          include: {
+            userRoles: {
+              include: { role: true },
+            },
+            tenant: true,
           },
-          tenant: true,
-        },
+        });
+
+        if (!user || !user.passwordHash) {
+          throw unauthorized('Invalid credentials');
+        }
+
+        const validPassword = await bcrypt.compare(password, user.passwordHash);
+        if (!validPassword) {
+          throw unauthorized('Invalid credentials');
+        }
+
+        if (user.status !== 'active') {
+          throw unauthorized('Account is not active');
+        }
+
+        const roles = user.userRoles.map(ur => ur.role.name);
+
+        await db.user.update({
+          where: { id: user.id },
+          data: { lastLoginAt: new Date() },
+        });
+
+        return { user, roles };
       });
-      
-      if (!user || !user.passwordHash) {
-        throw unauthorized('Invalid credentials');
-      }
-      
-      // Verify password
-      const validPassword = await bcrypt.compare(password, user.passwordHash);
-      if (!validPassword) {
-        throw unauthorized('Invalid credentials');
-      }
-      
-      // Check user status
-      if (user.status !== 'active') {
-        throw unauthorized('Account is not active');
-      }
-      
-      // Generate tokens
-      const roles = user.userRoles.map(ur => ur.role.name);
+
       const accessToken = generateToken({
         sub: user.id,
         tenantId: user.tenantId,
@@ -58,15 +78,9 @@ router.post('/login',
         roles,
       });
       const refreshToken = generateRefreshToken(user.id, user.tenantId);
-      
-      // Update last login
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { lastLoginAt: new Date() },
-      });
-      
+
       logger.info('User logged in', { userId: user.id, tenantId: user.tenantId });
-      
+
       res.json({
         accessToken,
         refreshToken,
@@ -95,22 +109,34 @@ router.post('/refresh',
       const { refreshToken } = req.body;
       
       // Check if token is blacklisted
-      const isBlacklisted = await redisClient.get(`blacklist:${refreshToken}`);
-      if (isBlacklisted) {
-        throw unauthorized('Token has been revoked');
+      try {
+        const isBlacklisted = await redisClient.get(`blacklist:${refreshToken}`);
+        if (isBlacklisted) {
+          throw unauthorized('Token has been revoked');
+        }
+      } catch (error) {
+        logger.error('Refresh token blacklist check failed', { error: (error as Error).message });
       }
       
       // Verify refresh token
-      const { sub: userId, tenantId } = verifyRefreshToken(refreshToken);
+      let userId: string;
+      let tenantId: string;
+      try {
+        ({ sub: userId, tenantId } = verifyRefreshToken(refreshToken));
+      } catch {
+        throw unauthorized('Invalid refresh token');
+      }
       
-      // Get user
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: {
-          userRoles: {
-            include: { role: true },
+      const user = await prisma.$transaction(async (db) => {
+        await db.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${tenantId}'`);
+        return db.user.findFirst({
+          where: { id: userId, tenantId },
+          include: {
+            userRoles: {
+              include: { role: true },
+            },
           },
-        },
+        });
       });
       
       if (!user || user.status !== 'active') {
@@ -191,6 +217,7 @@ router.post('/register',
       
       // Create tenant, user, and admin role in transaction
       const result = await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${SYSTEM_TENANT_ID}'`);
         // Create tenant
         const tenant = await tx.tenant.create({
           data: {
@@ -199,6 +226,8 @@ router.post('/register',
             slug: tenantSlug,
           },
         });
+
+        await tx.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${tenant.id}'`);
         
         // Create admin role
         const adminRole = await tx.role.create({

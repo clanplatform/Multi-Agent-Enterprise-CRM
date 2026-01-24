@@ -33,6 +33,7 @@ model Tenant {
   customers      Customer[]
   agentTasks     AgentTask[]
   agentEvents    AgentEvent[]
+  agentDecisions AgentDecision[]
   aiMemory       AiMemory[]
   approvals      Approval[]
   auditLogs      AuditLog[]
@@ -51,6 +52,8 @@ model User {
   name         String    @db.VarChar(255)
   status       String    @default("active") @db.VarChar(50)
   lastLoginAt  DateTime? @map("last_login_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletionType String?   @map("deletion_type") @db.VarChar(50)
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -224,6 +227,8 @@ model Customer {
   segment       String?  @db.VarChar(100)
   lifetimeValue Decimal  @default(0) @map("lifetime_value") @db.Decimal(15, 2)
   status        String   @default("active") @db.VarChar(50)
+  deletedAt     DateTime? @map("deleted_at")
+  deletionType  String?   @map("deletion_type") @db.VarChar(50)
   metadata      Json     @default("{}")
   createdBy     String?  @map("created_by") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at")
@@ -357,6 +362,30 @@ model Approval {
   @@map("approvals")
 }
 
+model AgentDecision {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  agentId       String   @map("agent_id") @db.Text
+  actionType    String   @map("action_type") @db.Text
+  riskLevel     String   @map("risk_level") @db.Text
+  status        String   @db.Text
+  confidence    Decimal? @db.Decimal(4, 3)
+  inputContext  Json     @default("{}") @map("input_context")
+  reasoning     Json     @default("{}")
+  evidence      Json     @default("[]")
+  toolCalls     Json     @default("[]") @map("tool_calls")
+  approvalId    String?  @map("approval_id") @db.Uuid
+  correlationId String?  @map("correlation_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, agentId, createdAt])
+  @@index([tenantId, approvalId])
+  @@map("agent_decisions")
+}
+
 model AuditLog {
   id            String   @id @default(uuid()) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -377,6 +406,22 @@ model AuditLog {
 
   @@index([tenantId, createdAt])
   @@map("audit_logs")
+}
+
+model DataRetentionPolicy {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  entityType    String   @map("entity_type") @db.Text
+  retentionDays Int      @map("retention_days")
+  hardDelete    Boolean  @default(false) @map("hard_delete")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, entityType])
+  @@index([tenantId, entityType])
+  @@map("data_retention_policies")
 }
 
 model SecurityEvent {
@@ -420,4 +465,105 @@ model DomainEvent {
   @@index([aggregateType, aggregateId])
   @@index([tenantId, createdAt])
   @@map("domain_events")
+}
+
+model EventStream {
+  tenantId       String   @map("tenant_id") @db.Uuid
+  streamId       String   @map("stream_id") @db.Text
+  currentVersion Int      @default(0) @map("current_version")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @default(now()) @map("updated_at")
+
+  @@id([tenantId, streamId])
+  @@map("event_streams")
+}
+
+model Event {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  streamId       String   @map("stream_id") @db.Text
+  version        Int
+  eventId        String   @map("event_id") @db.Uuid
+  eventType      String   @map("event_type") @db.Text
+  schemaVersion  Int      @default(1) @map("schema_version")
+  payload        Json
+  idempotencyKey String?  @map("idempotency_key") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, streamId, version])
+  @@unique([tenantId, eventId])
+  @@index([tenantId, streamId, version])
+  @@map("events")
+}
+
+model OutboxEvent {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  eventId        String    @map("event_id") @db.Uuid
+  eventType      String    @map("event_type") @db.Text
+  topic          String    @db.Text
+  payload        Json
+  schemaVersion  Int       @default(1) @map("schema_version")
+  publishedAt    DateTime? @map("published_at")
+  retryCount     Int       @default(0) @map("retry_count")
+  lastError      String?   @map("last_error") @db.Text
+  idempotencyKey String?   @map("idempotency_key") @db.Text
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at")
+  deadLetteredAt DateTime? @map("dead_lettered_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@unique([tenantId, eventId])
+  @@index([tenantId, createdAt])
+  @@map("outbox_events")
+}
+
+model ProcessedEvent {
+  tenantId     String   @map("tenant_id") @db.Uuid
+  eventId      String   @map("event_id") @db.Uuid
+  processedAt  DateTime @default(now()) @map("processed_at")
+
+  @@id([tenantId, eventId])
+  @@map("processed_events")
+}
+
+model LeadReadModel {
+  tenantId    String   @map("tenant_id") @db.Uuid
+  leadId      String   @map("lead_id") @db.Uuid
+  name        String   @db.Text
+  email       String?  @db.Text
+  phone       String?  @db.Text
+  company     String?  @db.Text
+  status      String   @db.Text
+  score       Int?
+  assignedTo  String?  @map("assigned_to") @db.Uuid
+  metadata    Json     @default("{}")
+  version     Int      @default(0)
+  updatedAt   DateTime @default(now()) @map("updated_at")
+
+  @@id([tenantId, leadId])
+  @@index([tenantId, status])
+  @@map("lead_read_model")
+}
+
+model DealPipelineView {
+  tenantId    String   @map("tenant_id") @db.Uuid
+  stage       String   @db.Text
+  dealCount   Int      @default(0) @map("deal_count")
+  totalAmount Decimal  @default(0) @map("total_amount") @db.Decimal(15, 2)
+  updatedAt   DateTime @default(now()) @map("updated_at")
+
+  @@id([tenantId, stage])
+  @@map("deal_pipeline_view")
+}
+
+model CustomerTimelineView {
+  tenantId     String    @map("tenant_id") @db.Uuid
+  customerId   String    @map("customer_id") @db.Uuid
+  lastEventAt  DateTime? @map("last_event_at")
+  openTickets  Int       @default(0) @map("open_tickets")
+  activeDeals  Int       @default(0) @map("active_deals")
+  updatedAt    DateTime  @default(now()) @map("updated_at")
+
+  @@id([tenantId, customerId])
+  @@map("customer_timeline_view")
 }

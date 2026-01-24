@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
 import { v4 as uuidv4 } from 'uuid';
-import { prisma } from '../services/prisma';
+import { withTenantDb } from '../services/prisma';
 import { publishEvent, TOPICS } from '../services/kafka';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { badRequest, notFound } from '../middleware/errorHandler';
@@ -33,20 +33,22 @@ router.get('/',
         where.assignedTo = req.query.assignedTo;
       }
       
-      const [leads, total] = await Promise.all([
-        prisma.lead.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-          include: {
-            assignedUser: {
-              select: { id: true, name: true, email: true },
+      const [leads, total] = await withTenantDb(req.tenantId!, async (db) => {
+        return Promise.all([
+          db.lead.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              assignedUser: {
+                select: { id: true, name: true, email: true },
+              },
             },
-          },
-        }),
-        prisma.lead.count({ where }),
-      ]);
+          }),
+          db.lead.count({ where }),
+        ]);
+      });
       
       res.json({
         data: leads,
@@ -66,17 +68,19 @@ router.get('/',
 // Get single lead
 router.get('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const lead = await prisma.lead.findFirst({
-      where: {
-        id: req.params.id,
-        tenantId: req.tenantId,
-      },
-      include: {
-        assignedUser: {
-          select: { id: true, name: true, email: true },
+    const lead = await withTenantDb(req.tenantId!, async (db) => {
+      return db.lead.findFirst({
+        where: {
+          id: req.params.id,
+          tenantId: req.tenantId,
         },
-        deals: true,
-      },
+        include: {
+          assignedUser: {
+            select: { id: true, name: true, email: true },
+          },
+          deals: true,
+        },
+      });
     });
     
     if (!lead) {
@@ -104,19 +108,21 @@ router.post('/',
       }
       
       const leadId = uuidv4();
-      const lead = await prisma.lead.create({
-        data: {
-          id: leadId,
-          tenantId: req.tenantId!,
-          name: req.body.name,
-          email: req.body.email,
-          phone: req.body.phone,
-          company: req.body.company,
-          source: req.body.source || 'manual',
-          status: 'new',
-          createdBy: req.user?.sub,
-          metadata: req.body.metadata || {},
-        },
+      const lead = await withTenantDb(req.tenantId!, async (db) => {
+        return db.lead.create({
+          data: {
+            id: leadId,
+            tenantId: req.tenantId!,
+            name: req.body.name,
+            email: req.body.email,
+            phone: req.body.phone,
+            company: req.body.company,
+            source: req.body.source || 'manual',
+            status: 'new',
+            createdBy: req.user?.sub,
+            metadata: req.body.metadata || {},
+          },
+        });
       });
       
       // Publish event
@@ -134,6 +140,30 @@ router.post('/',
           createdBy: lead.createdBy,
         },
       });
+
+      await publishEvent(TOPICS.LEADS_EVENTS, {
+        type: 'crm.leads.created',
+        source: '/services/gateway',
+        id: uuidv4(),
+        tenantid: req.tenantId!,
+        correlationid: req.headers['x-correlation-id'] as string,
+        data: {
+          aggregate_type: 'lead',
+          aggregate_id: lead.id,
+          event_type: 'lead.created',
+          leadId: lead.id,
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          company: lead.company,
+          source: lead.source,
+          status: lead.status,
+          score: lead.score,
+          assignedTo: lead.assignedTo,
+          metadata: lead.metadata,
+          createdBy: lead.createdBy,
+        },
+      }, { key: lead.id });
       
       logger.info('Lead created', { leadId: lead.id, tenantId: req.tenantId });
       
@@ -158,29 +188,33 @@ router.patch('/:id',
       }
       
       // Check lead exists
-      const existing = await prisma.lead.findFirst({
-        where: {
-          id: req.params.id,
-          tenantId: req.tenantId,
-        },
-      });
-      
-      if (!existing) {
-        throw notFound('Lead not found');
-      }
-      
-      const lead = await prisma.lead.update({
-        where: { id: req.params.id },
-        data: {
-          ...(req.body.name && { name: req.body.name }),
-          ...(req.body.email && { email: req.body.email }),
-          ...(req.body.phone && { phone: req.body.phone }),
-          ...(req.body.company && { company: req.body.company }),
-          ...(req.body.status && { status: req.body.status }),
-          ...(req.body.score !== undefined && { score: req.body.score }),
-          ...(req.body.assignedTo && { assignedTo: req.body.assignedTo }),
-          ...(req.body.metadata && { metadata: req.body.metadata }),
-        },
+      const { existing, lead } = await withTenantDb(req.tenantId!, async (db) => {
+        const existing = await db.lead.findFirst({
+          where: {
+            id: req.params.id,
+            tenantId: req.tenantId,
+          },
+        });
+        
+        if (!existing) {
+          throw notFound('Lead not found');
+        }
+
+        const lead = await db.lead.update({
+          where: { id: req.params.id },
+          data: {
+            ...(req.body.name && { name: req.body.name }),
+            ...(req.body.email && { email: req.body.email }),
+            ...(req.body.phone && { phone: req.body.phone }),
+            ...(req.body.company && { company: req.body.company }),
+            ...(req.body.status && { status: req.body.status }),
+            ...(req.body.score !== undefined && { score: req.body.score }),
+            ...(req.body.assignedTo && { assignedTo: req.body.assignedTo }),
+            ...(req.body.metadata && { metadata: req.body.metadata }),
+          },
+        });
+
+        return { existing, lead };
       });
       
       // Publish event
@@ -197,6 +231,21 @@ router.patch('/:id',
           newStatus: lead.status,
         },
       });
+
+      await publishEvent(TOPICS.LEADS_EVENTS, {
+        type: 'crm.leads.updated',
+        source: '/services/gateway',
+        id: uuidv4(),
+        tenantid: req.tenantId!,
+        correlationid: req.headers['x-correlation-id'] as string,
+        data: {
+          aggregate_type: 'lead',
+          aggregate_id: lead.id,
+          event_type: 'lead.updated',
+          leadId: lead.id,
+          changes: req.body,
+        },
+      }, { key: lead.id });
       
       logger.info('Lead updated', { leadId: lead.id, tenantId: req.tenantId });
       
@@ -210,19 +259,21 @@ router.patch('/:id',
 // Delete lead
 router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const lead = await prisma.lead.findFirst({
-      where: {
-        id: req.params.id,
-        tenantId: req.tenantId,
-      },
-    });
-    
-    if (!lead) {
-      throw notFound('Lead not found');
-    }
-    
-    await prisma.lead.delete({
-      where: { id: req.params.id },
+    await withTenantDb(req.tenantId!, async (db) => {
+      const lead = await db.lead.findFirst({
+        where: {
+          id: req.params.id,
+          tenantId: req.tenantId,
+        },
+      });
+      
+      if (!lead) {
+        throw notFound('Lead not found');
+      }
+      
+      await db.lead.delete({
+        where: { id: req.params.id },
+      });
     });
     
     logger.info('Lead deleted', { leadId: req.params.id, tenantId: req.tenantId });
@@ -238,25 +289,27 @@ router.post('/:id/assign',
   body('userId').isUUID(),
   async (req: AuthenticatedRequest, res: Response, next) => {
     try {
-      const lead = await prisma.lead.findFirst({
-        where: {
-          id: req.params.id,
-          tenantId: req.tenantId,
-        },
-      });
-      
-      if (!lead) {
-        throw notFound('Lead not found');
-      }
-      
-      const updated = await prisma.lead.update({
-        where: { id: req.params.id },
-        data: { assignedTo: req.body.userId },
-        include: {
-          assignedUser: {
-            select: { id: true, name: true, email: true },
+      const updated = await withTenantDb(req.tenantId!, async (db) => {
+        const lead = await db.lead.findFirst({
+          where: {
+            id: req.params.id,
+            tenantId: req.tenantId,
           },
-        },
+        });
+        
+        if (!lead) {
+          throw notFound('Lead not found');
+        }
+        
+        return db.lead.update({
+          where: { id: req.params.id },
+          data: { assignedTo: req.body.userId },
+          include: {
+            assignedUser: {
+              select: { id: true, name: true, email: true },
+            },
+          },
+        });
       });
       
       res.json(updated);

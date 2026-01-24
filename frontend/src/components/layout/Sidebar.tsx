@@ -10,6 +10,7 @@ import {
   Bot,
   Shield,
   Settings,
+  History,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -23,6 +24,7 @@ const navigation = [
   { name: 'Tickets', href: '/tickets', icon: Ticket },
   { name: 'Customers', href: '/customers', icon: Users },
   { name: 'AI Agents', href: '/agents', icon: Bot },
+  { name: 'Replay', href: '/replay', icon: History },
   { name: 'Approvals', href: '/approvals', icon: Shield },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];

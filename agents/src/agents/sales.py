@@ -15,7 +15,8 @@ from datetime import datetime
 import structlog
 
 from .base import BaseAgent
-from ..orchestrator.config import settings
+from orchestrator.config import settings
+from governance.approval_service import PendingAction
 
 logger = structlog.get_logger()
 
@@ -53,6 +54,16 @@ class SalesAgent(BaseAgent):
         lead_id = data.get("leadId")
         
         logger.info("Qualifying lead", lead_id=lead_id, tenant_id=tenant_id)
+
+        policy_precheck = await self.check_policy(
+            tenant_id=tenant_id,
+            action="leads:qualify",
+            resource={"lead_id": lead_id},
+            confidence=1.0,
+        )
+        if not policy_precheck["allowed"]:
+            logger.warning("Policy denied lead qualification", reasons=policy_precheck["deny_reasons"])
+            return {"status": "denied", "reasons": policy_precheck["deny_reasons"]}
         
         # Build prompt for lead qualification
         prompt = f"""Analyze this lead and provide a qualification score from 0-100.
@@ -87,7 +98,7 @@ Always explain your reasoning clearly."""
 
         try:
             # Call LLM
-            response = await self.call_llm(prompt, system_prompt)
+            response = await self.call_llm(prompt, system_prompt, tenant_id=tenant_id)
             
             # Parse response
             result = self._parse_json_response(response)
@@ -119,6 +130,30 @@ Always explain your reasoning clearly."""
             
             # If high-impact action or low confidence, request approval
             if policy_result.get("requires_approval") or confidence < settings.DEFAULT_CONFIDENCE_THRESHOLD:
+                approval_id = str(uuid.uuid4())
+                if self._approval_service:
+                    await self._approval_service.request_approval(
+                        PendingAction(
+                            tenant_id=tenant_id,
+                            agent_id=self.agent_id,
+                            approval_id=approval_id,
+                            action_type="leads:qualify",
+                            topic="crm.leads.qualified",
+                            event_type="crm.leads.qualified",
+                            data={
+                                "leadId": lead_id,
+                                "score": score,
+                                "qualificationStatus": result.get("qualification_status"),
+                                "reasoning": reasoning,
+                                "confidence": confidence,
+                                "recommendedActions": result.get("recommended_actions", []),
+                                "qualifiedBy": self.agent_id,
+                                "approvalId": approval_id,
+                            },
+                            correlation_id=event.get("correlationid"),
+                        )
+                    )
+
                 await self.request_approval(
                     tenant_id=tenant_id,
                     action_type="leads:qualify",
@@ -131,6 +166,7 @@ Always explain your reasoning clearly."""
                     },
                     reasoning=reasoning,
                     confidence=confidence,
+                    approval_id=approval_id,
                 )
                 return {"status": "pending_approval", "score": score}
                 
@@ -195,7 +231,7 @@ Provide your response in JSON format:
 """
 
         try:
-            response = await self.call_llm(prompt)
+            response = await self.call_llm(prompt, tenant_id=tenant_id)
             result = self._parse_json_response(response)
             
             await self.emit_event(
@@ -242,7 +278,7 @@ Response format:
 """
 
         try:
-            response = await self.call_llm(prompt)
+            response = await self.call_llm(prompt, tenant_id=tenant_id)
             result = self._parse_json_response(response)
             
             await self.emit_event(

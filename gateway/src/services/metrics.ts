@@ -65,6 +65,42 @@ export const approvalsPending = new Gauge({
   registers: [register],
 });
 
+export const cacheHitTotal = new Counter({
+  name: 'cache_hit_total',
+  help: 'Total cache hits',
+  labelNames: ['tenant', 'cache'],
+  registers: [register],
+});
+
+export const cacheMissTotal = new Counter({
+  name: 'cache_miss_total',
+  help: 'Total cache misses',
+  labelNames: ['tenant', 'cache'],
+  registers: [register],
+});
+
+export const cacheInvalidationTotal = new Counter({
+  name: 'cache_invalidation_total',
+  help: 'Total cache invalidations',
+  labelNames: ['tenant', 'reason'],
+  registers: [register],
+});
+
+export const cacheFailClosedTotal = new Counter({
+  name: 'cache_fail_closed_total',
+  help: 'Total fail-closed security events during caching and auth',
+  labelNames: ['component', 'reason'],
+  registers: [register],
+});
+
+export const authRecheckLatencyMs = new Histogram({
+  name: 'auth_recheck_latency_ms',
+  help: 'Authorization recheck latency on cache miss in milliseconds',
+  labelNames: ['component'],
+  buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
+  registers: [register],
+});
+
 // Setup metrics endpoint
 export const setupMetrics = (app: Application): void => {
   app.get('/metrics', async (req, res) => {

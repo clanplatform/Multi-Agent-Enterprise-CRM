@@ -25,6 +25,14 @@ weaviate-client>=4.4.0
 
 # HTTP
 httpx>=0.26.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+
+# Redis
+redis>=5.0.0
+
+# Metrics
+prometheus-client>=0.20.0
 
 # Utilities
 pydantic>=2.5.0

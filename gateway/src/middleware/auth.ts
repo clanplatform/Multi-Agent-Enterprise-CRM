@@ -6,7 +6,8 @@ import { redisClient } from '../services/redis';
 
 export interface TokenPayload {
   sub: string;           // User ID
-  tenantId: string;      // Tenant ID
+  tenantId?: string;     // Tenant ID (legacy)
+  tenant_id?: string;    // Tenant ID (Keycloak-style)
   email: string;
   roles: string[];
   iat: number;
@@ -36,32 +37,37 @@ export const authMiddleware = async (
     const token = authHeader.substring(7);
     
     // Check if token is blacklisted (for logout)
-    const isBlacklisted = await redisClient.get(`blacklist:${token}`);
-    if (isBlacklisted) {
-      throw unauthorized('Token has been revoked');
+    try {
+      const isBlacklisted = await redisClient.get(`blacklist:${token}`);
+      if (isBlacklisted) {
+        throw unauthorized('Token has been revoked');
+      }
+    } catch (error) {
+      logger.error('Token blacklist check failed', { error: (error as Error).message });
     }
     
     // Verify token
     const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
+    const tenantId = decoded.tenantId || decoded.tenant_id;
     
     // Validate required claims
-    if (!decoded.sub || !decoded.tenantId) {
+    if (!decoded.sub || !tenantId) {
       throw unauthorized('Invalid token claims');
     }
     
     // Attach user info to request
-    req.user = decoded;
-    req.tenantId = decoded.tenantId;
+    req.user = { ...decoded, tenantId };
+    req.tenantId = tenantId;
     
     // Add user info to headers for downstream services
     req.headers['x-user-id'] = decoded.sub;
-    req.headers['x-tenant-id'] = decoded.tenantId;
-    req.headers['x-user-roles'] = decoded.roles.join(',');
+    req.headers['x-token-tenant-id'] = tenantId;
+    req.headers['x-user-roles'] = (decoded.roles || []).join(',');
     
     logger.debug('User authenticated', {
       userId: decoded.sub,
-      tenantId: decoded.tenantId,
-      roles: decoded.roles,
+      tenantId,
+      roles: decoded.roles || [],
     });
     
     next();

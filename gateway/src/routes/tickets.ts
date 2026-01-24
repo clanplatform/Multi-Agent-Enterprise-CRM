@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
 import { v4 as uuidv4 } from 'uuid';
-import { prisma } from '../services/prisma';
+import { withTenantDb } from '../services/prisma';
 import { publishEvent, TOPICS } from '../services/kafka';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { badRequest, notFound } from '../middleware/errorHandler';
@@ -26,19 +26,21 @@ router.get('/',
       if (req.query.priority) where.priority = req.query.priority;
       if (req.query.assignedTo) where.assignedTo = req.query.assignedTo;
       
-      const [tickets, total] = await Promise.all([
-        prisma.ticket.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-          include: {
-            customer: { select: { id: true, name: true } },
-            assignedUser: { select: { id: true, name: true } },
-          },
-        }),
-        prisma.ticket.count({ where }),
-      ]);
+      const [tickets, total] = await withTenantDb(req.tenantId!, async (db) => {
+        return Promise.all([
+          db.ticket.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              customer: { select: { id: true, name: true } },
+              assignedUser: { select: { id: true, name: true } },
+            },
+          }),
+          db.ticket.count({ where }),
+        ]);
+      });
       
       res.json({
         data: tickets,
@@ -53,12 +55,14 @@ router.get('/',
 // Get ticket
 router.get('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const ticket = await prisma.ticket.findFirst({
-      where: { id: req.params.id, tenantId: req.tenantId },
-      include: {
-        customer: true,
-        assignedUser: { select: { id: true, name: true, email: true } },
-      },
+    const ticket = await withTenantDb(req.tenantId!, async (db) => {
+      return db.ticket.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+        include: {
+          customer: true,
+          assignedUser: { select: { id: true, name: true, email: true } },
+        },
+      });
     });
     
     if (!ticket) throw notFound('Ticket not found');
@@ -91,20 +95,22 @@ router.post('/',
       slaDueAt.setHours(slaDueAt.getHours() + slaDurations[priority]);
       
       const ticketId = uuidv4();
-      const ticket = await prisma.ticket.create({
-        data: {
-          id: ticketId,
-          tenantId: req.tenantId!,
-          subject: req.body.subject,
-          description: req.body.description,
-          customerId: req.body.customerId,
-          priority,
-          category: req.body.category,
-          status: 'open',
-          slaDueAt,
-          createdBy: req.user?.sub,
-          metadata: req.body.metadata || {},
-        },
+      const ticket = await withTenantDb(req.tenantId!, async (db) => {
+        return db.ticket.create({
+          data: {
+            id: ticketId,
+            tenantId: req.tenantId!,
+            subject: req.body.subject,
+            description: req.body.description,
+            customerId: req.body.customerId,
+            priority,
+            category: req.body.category,
+            status: 'open',
+            slaDueAt,
+            createdBy: req.user?.sub,
+            metadata: req.body.metadata || {},
+          },
+        });
       });
       
       await publishEvent(TOPICS.TICKETS_CREATED, {
@@ -119,6 +125,29 @@ router.post('/',
           slaDueAt: ticket.slaDueAt,
         },
       });
+
+      await publishEvent(TOPICS.TICKETS_EVENTS, {
+        type: 'crm.tickets.created',
+        source: '/services/gateway',
+        id: uuidv4(),
+        tenantid: req.tenantId!,
+        data: {
+          aggregate_type: 'ticket',
+          aggregate_id: ticket.id,
+          event_type: 'ticket.created',
+          ticketId: ticket.id,
+          subject: ticket.subject,
+          description: ticket.description,
+          customerId: ticket.customerId,
+          priority: ticket.priority,
+          status: ticket.status,
+          category: ticket.category,
+          assignedTo: ticket.assignedTo,
+          slaDueAt: ticket.slaDueAt,
+          metadata: ticket.metadata,
+          createdBy: ticket.createdBy,
+        },
+      }, { key: ticket.id });
       
       logger.info('Ticket created', { ticketId: ticket.id, tenantId: req.tenantId });
       res.status(201).json(ticket);
@@ -132,22 +161,24 @@ router.post('/',
 router.patch('/:id',
   async (req: AuthenticatedRequest, res: Response, next) => {
     try {
-      const existing = await prisma.ticket.findFirst({
-        where: { id: req.params.id, tenantId: req.tenantId },
-      });
-      
-      if (!existing) throw notFound('Ticket not found');
-      
-      const ticket = await prisma.ticket.update({
-        where: { id: req.params.id },
-        data: {
-          ...(req.body.subject && { subject: req.body.subject }),
-          ...(req.body.description && { description: req.body.description }),
-          ...(req.body.priority && { priority: req.body.priority }),
-          ...(req.body.status && { status: req.body.status }),
-          ...(req.body.category && { category: req.body.category }),
-          ...(req.body.assignedTo && { assignedTo: req.body.assignedTo }),
-        },
+      const ticket = await withTenantDb(req.tenantId!, async (db) => {
+        const existing = await db.ticket.findFirst({
+          where: { id: req.params.id, tenantId: req.tenantId },
+        });
+        
+        if (!existing) throw notFound('Ticket not found');
+        
+        return db.ticket.update({
+          where: { id: req.params.id },
+          data: {
+            ...(req.body.subject && { subject: req.body.subject }),
+            ...(req.body.description && { description: req.body.description }),
+            ...(req.body.priority && { priority: req.body.priority }),
+            ...(req.body.status && { status: req.body.status }),
+            ...(req.body.category && { category: req.body.category }),
+            ...(req.body.assignedTo && { assignedTo: req.body.assignedTo }),
+          },
+        });
       });
       
       await publishEvent(TOPICS.TICKETS_UPDATED, {
@@ -157,6 +188,20 @@ router.patch('/:id',
         tenantid: req.tenantId!,
         data: { ticketId: ticket.id, changes: req.body },
       });
+
+      await publishEvent(TOPICS.TICKETS_EVENTS, {
+        type: 'crm.tickets.updated',
+        source: '/services/gateway',
+        id: uuidv4(),
+        tenantid: req.tenantId!,
+        data: {
+          aggregate_type: 'ticket',
+          aggregate_id: ticket.id,
+          event_type: 'ticket.updated',
+          ticketId: ticket.id,
+          changes: req.body,
+        },
+      }, { key: ticket.id });
       
       res.json(ticket);
     } catch (error) {
@@ -170,19 +215,21 @@ router.post('/:id/resolve',
   body('resolution').isLength({ min: 1 }),
   async (req: AuthenticatedRequest, res: Response, next) => {
     try {
-      const existing = await prisma.ticket.findFirst({
-        where: { id: req.params.id, tenantId: req.tenantId },
-      });
-      
-      if (!existing) throw notFound('Ticket not found');
-      
-      const ticket = await prisma.ticket.update({
-        where: { id: req.params.id },
-        data: {
-          status: 'resolved',
-          resolution: req.body.resolution,
-          resolvedAt: new Date(),
-        },
+      const ticket = await withTenantDb(req.tenantId!, async (db) => {
+        const existing = await db.ticket.findFirst({
+          where: { id: req.params.id, tenantId: req.tenantId },
+        });
+        
+        if (!existing) throw notFound('Ticket not found');
+        
+        return db.ticket.update({
+          where: { id: req.params.id },
+          data: {
+            status: 'resolved',
+            resolution: req.body.resolution,
+            resolvedAt: new Date(),
+          },
+        });
       });
       
       await publishEvent(TOPICS.TICKETS_RESOLVED, {
@@ -197,6 +244,22 @@ router.post('/:id/resolve',
             ticket.resolvedAt <= ticket.slaDueAt : null,
         },
       });
+
+      await publishEvent(TOPICS.TICKETS_EVENTS, {
+        type: 'crm.tickets.resolved',
+        source: '/services/gateway',
+        id: uuidv4(),
+        tenantid: req.tenantId!,
+        data: {
+          aggregate_type: 'ticket',
+          aggregate_id: ticket.id,
+          event_type: 'ticket.resolved',
+          ticketId: ticket.id,
+          resolution: ticket.resolution,
+          resolvedAt: ticket.resolvedAt,
+          slaDueAt: ticket.slaDueAt,
+        },
+      }, { key: ticket.id });
       
       logger.info('Ticket resolved', { ticketId: ticket.id, tenantId: req.tenantId });
       res.json(ticket);
@@ -209,13 +272,15 @@ router.post('/:id/resolve',
 // Delete ticket
 router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const ticket = await prisma.ticket.findFirst({
-      where: { id: req.params.id, tenantId: req.tenantId },
+    await withTenantDb(req.tenantId!, async (db) => {
+      const ticket = await db.ticket.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+      });
+      
+      if (!ticket) throw notFound('Ticket not found');
+      
+      await db.ticket.delete({ where: { id: req.params.id } });
     });
-    
-    if (!ticket) throw notFound('Ticket not found');
-    
-    await prisma.ticket.delete({ where: { id: req.params.id } });
     res.status(204).send();
   } catch (error) {
     next(error);

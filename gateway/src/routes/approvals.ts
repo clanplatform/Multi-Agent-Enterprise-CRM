@@ -1,12 +1,14 @@
 import { Router, Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
 import { v4 as uuidv4 } from 'uuid';
-import { prisma } from '../services/prisma';
+import { withTenantDb } from '../services/prisma';
 import { publishEvent, TOPICS } from '../services/kafka';
 import { sendToUser } from '../services/websocket';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { badRequest, notFound, forbidden } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
+import { secureCache } from '../services/secureCache';
+import { cacheInvalidationTotal } from '../services/metrics';
 
 const router = Router();
 
@@ -28,15 +30,17 @@ router.get('/',
         where.status = 'pending';
       }
       
-      const [approvals, total] = await Promise.all([
-        prisma.approval.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-        }),
-        prisma.approval.count({ where }),
-      ]);
+      const [approvals, total] = await withTenantDb(req.tenantId!, async (db) => {
+        return Promise.all([
+          db.approval.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+          }),
+          db.approval.count({ where }),
+        ]);
+      });
       
       res.json({
         data: approvals,
@@ -51,11 +55,13 @@ router.get('/',
 // Get approval details
 router.get('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const approval = await prisma.approval.findFirst({
-      where: { id: req.params.id, tenantId: req.tenantId },
-      include: {
-        decidedUser: { select: { id: true, name: true, email: true } },
-      },
+    const approval = await withTenantDb(req.tenantId!, async (db) => {
+      return db.approval.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+        include: {
+          decidedUser: { select: { id: true, name: true, email: true } },
+        },
+      });
     });
     
     if (!approval) throw notFound('Approval not found');
@@ -82,20 +88,22 @@ router.post('/',
       expiresAt.setHours(expiresAt.getHours() + (req.body.expiresInHours || 24));
       
       const approvalId = uuidv4();
-      const approval = await prisma.approval.create({
-        data: {
-          id: approvalId,
-          tenantId: req.tenantId!,
-          requestType: req.body.requestType,
-          requestorType: req.body.requestorType,
-          requestorId: req.body.requestorId,
-          actionType: req.body.actionType,
-          targetEntity: req.body.targetEntity,
-          targetId: req.body.targetId,
-          context: req.body.context,
-          status: 'pending',
-          expiresAt,
-        },
+      const approval = await withTenantDb(req.tenantId!, async (db) => {
+        return db.approval.create({
+          data: {
+            id: approvalId,
+            tenantId: req.tenantId!,
+            requestType: req.body.requestType,
+            requestorType: req.body.requestorType,
+            requestorId: req.body.requestorId,
+            actionType: req.body.actionType,
+            targetEntity: req.body.targetEntity,
+            targetId: req.body.targetId,
+            context: req.body.context,
+            status: 'pending',
+            expiresAt,
+          },
+        });
       });
       
       // Publish event
@@ -134,35 +142,36 @@ router.post('/:id/decide',
       const errors = validationResult(req);
       if (!errors.isEmpty()) throw badRequest('Validation failed', errors.array());
       
-      const existing = await prisma.approval.findFirst({
-        where: { id: req.params.id, tenantId: req.tenantId },
-      });
-      
-      if (!existing) throw notFound('Approval not found');
-      
-      if (existing.status !== 'pending') {
-        throw badRequest('Approval has already been decided');
-      }
-      
-      // Check if expired
-      if (existing.expiresAt && new Date() > existing.expiresAt) {
-        await prisma.approval.update({
-          where: { id: req.params.id },
-          data: { status: 'expired' },
+      const { existing, approval } = await withTenantDb(req.tenantId!, async (db) => {
+        const existing = await db.approval.findFirst({
+          where: { id: req.params.id, tenantId: req.tenantId },
         });
-        throw badRequest('Approval has expired');
-      }
-      
-      // TODO: Check if user has permission to approve based on OPA policy
-      
-      const approval = await prisma.approval.update({
-        where: { id: req.params.id },
-        data: {
-          status: req.body.decision,
-          decidedBy: req.user?.sub,
-          decidedAt: new Date(),
-          decisionReason: req.body.reason,
-        },
+        
+        if (!existing) throw notFound('Approval not found');
+        
+        if (existing.status !== 'pending') {
+          throw badRequest('Approval has already been decided');
+        }
+        
+        if (existing.expiresAt && new Date() > existing.expiresAt) {
+          await db.approval.update({
+            where: { id: req.params.id },
+            data: { status: 'expired' },
+          });
+          throw badRequest('Approval has expired');
+        }
+        
+        const approval = await db.approval.update({
+          where: { id: req.params.id },
+          data: {
+            status: req.body.decision,
+            decidedBy: req.user?.sub,
+            decidedAt: new Date(),
+            decisionReason: req.body.reason,
+          },
+        });
+
+        return { existing, approval };
       });
       
       // Publish decision event
@@ -181,6 +190,9 @@ router.post('/:id/decide',
           context: approval.context,
         },
       });
+
+      await secureCache.bumpTenantEpoch(req.tenantId!);
+      cacheInvalidationTotal.labels(req.tenantId!, 'approval_decision').inc();
       
       // Notify the requestor via WebSocket if it's a user
       if (existing.requestorType === 'user') {
@@ -211,24 +223,25 @@ router.post('/:id/decide',
 // Cancel approval request
 router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const existing = await prisma.approval.findFirst({
-      where: { id: req.params.id, tenantId: req.tenantId },
-    });
-    
-    if (!existing) throw notFound('Approval not found');
-    
-    // Only the requestor or an admin can cancel
-    if (existing.requestorId !== req.user?.sub && !req.user?.roles.includes('admin')) {
-      throw forbidden('Only the requestor or admin can cancel this approval');
-    }
-    
-    if (existing.status !== 'pending') {
-      throw badRequest('Only pending approvals can be cancelled');
-    }
-    
-    await prisma.approval.update({
-      where: { id: req.params.id },
-      data: { status: 'cancelled' },
+    await withTenantDb(req.tenantId!, async (db) => {
+      const existing = await db.approval.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+      });
+      
+      if (!existing) throw notFound('Approval not found');
+      
+      if (existing.requestorId !== req.user?.sub && !req.user?.roles.includes('admin')) {
+        throw forbidden('Only the requestor or admin can cancel this approval');
+      }
+      
+      if (existing.status !== 'pending') {
+        throw badRequest('Only pending approvals can be cancelled');
+      }
+      
+      await db.approval.update({
+        where: { id: req.params.id },
+        data: { status: 'cancelled' },
+      });
     });
     
     res.status(204).send();

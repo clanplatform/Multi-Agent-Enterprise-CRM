@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import request from 'supertest';
-import app from '../src/index';
-import { prisma } from '../src/services/prisma';
+import app from '../index';
+import { prisma, withTenantDb } from '../services/prisma';
 
 describe('Authentication API', () => {
   let accessToken: string;
   let refreshToken: string;
+  let tenantId: string | undefined;
   
   const testUser = {
     tenantName: 'Test Tenant',
@@ -16,14 +17,17 @@ describe('Authentication API', () => {
   };
 
   afterAll(async () => {
-    // Cleanup
-    await prisma.user.deleteMany({
-      where: { email: testUser.email },
-    });
-    await prisma.tenant.deleteMany({
-      where: { slug: testUser.tenantSlug },
-    });
-    await prisma.$disconnect();
+    if (tenantId) {
+      await withTenantDb(tenantId, async (db) => {
+        const user = await db.user.findFirst({ where: { email: testUser.email } });
+        if (user) {
+          await db.userRole.deleteMany({ where: { userId: user.id } });
+          await db.user.delete({ where: { id: user.id } });
+        }
+        await db.role.deleteMany({ where: { tenantId } });
+      });
+      await prisma.tenant.deleteMany({ where: { id: tenantId } });
+    }
   });
 
   describe('POST /api/v1/auth/register', () => {
@@ -41,6 +45,7 @@ describe('Authentication API', () => {
 
       accessToken = response.body.accessToken;
       refreshToken = response.body.refreshToken;
+      tenantId = response.body.user.tenant.id;
     });
 
     it('should reject duplicate tenant slug', async () => {
@@ -65,6 +70,7 @@ describe('Authentication API', () => {
       const response = await request(app)
         .post('/api/v1/auth/login')
         .send({
+          tenantSlug: testUser.tenantSlug,
           email: testUser.email,
           password: testUser.password,
         })
@@ -78,6 +84,7 @@ describe('Authentication API', () => {
       await request(app)
         .post('/api/v1/auth/login')
         .send({
+          tenantSlug: testUser.tenantSlug,
           email: testUser.email,
           password: 'wrongpassword',
         })
@@ -88,6 +95,7 @@ describe('Authentication API', () => {
       await request(app)
         .post('/api/v1/auth/login')
         .send({
+          tenantSlug: testUser.tenantSlug,
           email: 'nonexistent@example.com',
           password: 'anypassword',
         })
@@ -130,15 +138,18 @@ describe('Leads API', () => {
   let leadId: string;
 
   beforeAll(async () => {
-    // Login to get token
-    const loginResponse = await request(app)
-      .post('/api/v1/auth/login')
+    const registerResponse = await request(app)
+      .post('/api/v1/auth/register')
       .send({
-        email: 'demo@example.com',
-        password: 'demo1234',
-      });
-    
-    accessToken = loginResponse.body.accessToken;
+        tenantName: 'Leads Test Tenant',
+        tenantSlug: `leads-${Date.now()}`,
+        email: `leads-${Date.now()}@example.com`,
+        password: 'SecurePass123!',
+        name: 'Leads Test User',
+      })
+      .expect(201);
+
+    accessToken = registerResponse.body.accessToken;
   });
 
   describe('POST /api/v1/leads', () => {

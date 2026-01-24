@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
 import { v4 as uuidv4 } from 'uuid';
-import { prisma } from '../services/prisma';
+import { withTenantDb } from '../services/prisma';
 import { publishEvent, TOPICS } from '../services/kafka';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { badRequest, notFound } from '../middleware/errorHandler';
@@ -24,15 +24,17 @@ router.get('/',
       if (req.query.segment) where.segment = req.query.segment;
       if (req.query.status) where.status = req.query.status;
       
-      const [customers, total] = await Promise.all([
-        prisma.customer.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-        }),
-        prisma.customer.count({ where }),
-      ]);
+      const [customers, total] = await withTenantDb(req.tenantId!, async (db) => {
+        return Promise.all([
+          db.customer.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+          }),
+          db.customer.count({ where }),
+        ]);
+      });
       
       res.json({
         data: customers,
@@ -47,12 +49,14 @@ router.get('/',
 // Get customer
 router.get('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const customer = await prisma.customer.findFirst({
-      where: { id: req.params.id, tenantId: req.tenantId },
-      include: {
-        deals: { orderBy: { createdAt: 'desc' }, take: 5 },
-        tickets: { orderBy: { createdAt: 'desc' }, take: 5 },
-      },
+    const customer = await withTenantDb(req.tenantId!, async (db) => {
+      return db.customer.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+        include: {
+          deals: { orderBy: { createdAt: 'desc' }, take: 5 },
+          tickets: { orderBy: { createdAt: 'desc' }, take: 5 },
+        },
+      });
     });
     
     if (!customer) throw notFound('Customer not found');
@@ -75,18 +79,20 @@ router.post('/',
       if (!errors.isEmpty()) throw badRequest('Validation failed', errors.array());
       
       const customerId = uuidv4();
-      const customer = await prisma.customer.create({
-        data: {
-          id: customerId,
-          tenantId: req.tenantId!,
-          name: req.body.name,
-          email: req.body.email,
-          phone: req.body.phone,
-          company: req.body.company,
-          segment: req.body.segment,
-          createdBy: req.user?.sub,
-          metadata: req.body.metadata || {},
-        },
+      const customer = await withTenantDb(req.tenantId!, async (db) => {
+        return db.customer.create({
+          data: {
+            id: customerId,
+            tenantId: req.tenantId!,
+            name: req.body.name,
+            email: req.body.email,
+            phone: req.body.phone,
+            company: req.body.company,
+            segment: req.body.segment,
+            createdBy: req.user?.sub,
+            metadata: req.body.metadata || {},
+          },
+        });
       });
       
       await publishEvent(TOPICS.CUSTOMERS_CREATED, {
@@ -109,23 +115,25 @@ router.post('/',
 router.patch('/:id',
   async (req: AuthenticatedRequest, res: Response, next) => {
     try {
-      const existing = await prisma.customer.findFirst({
-        where: { id: req.params.id, tenantId: req.tenantId },
-      });
-      
-      if (!existing) throw notFound('Customer not found');
-      
-      const customer = await prisma.customer.update({
-        where: { id: req.params.id },
-        data: {
-          ...(req.body.name && { name: req.body.name }),
-          ...(req.body.email && { email: req.body.email }),
-          ...(req.body.phone && { phone: req.body.phone }),
-          ...(req.body.company && { company: req.body.company }),
-          ...(req.body.segment && { segment: req.body.segment }),
-          ...(req.body.status && { status: req.body.status }),
-          ...(req.body.metadata && { metadata: req.body.metadata }),
-        },
+      const customer = await withTenantDb(req.tenantId!, async (db) => {
+        const existing = await db.customer.findFirst({
+          where: { id: req.params.id, tenantId: req.tenantId },
+        });
+        
+        if (!existing) throw notFound('Customer not found');
+        
+        return db.customer.update({
+          where: { id: req.params.id },
+          data: {
+            ...(req.body.name && { name: req.body.name }),
+            ...(req.body.email && { email: req.body.email }),
+            ...(req.body.phone && { phone: req.body.phone }),
+            ...(req.body.company && { company: req.body.company }),
+            ...(req.body.segment && { segment: req.body.segment }),
+            ...(req.body.status && { status: req.body.status }),
+            ...(req.body.metadata && { metadata: req.body.metadata }),
+          },
+        });
       });
       
       await publishEvent(TOPICS.CUSTOMERS_UPDATED, {
@@ -146,13 +154,15 @@ router.patch('/:id',
 // Delete customer
 router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const customer = await prisma.customer.findFirst({
-      where: { id: req.params.id, tenantId: req.tenantId },
+    await withTenantDb(req.tenantId!, async (db) => {
+      const customer = await db.customer.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+      });
+      
+      if (!customer) throw notFound('Customer not found');
+      
+      await db.customer.delete({ where: { id: req.params.id } });
     });
-    
-    if (!customer) throw notFound('Customer not found');
-    
-    await prisma.customer.delete({ where: { id: req.params.id } });
     logger.info('Customer deleted', { customerId: req.params.id, tenantId: req.tenantId });
     res.status(204).send();
   } catch (error) {

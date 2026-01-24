@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # ===================
@@ -31,10 +31,11 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
-      - KAFKA_BROKERS=${KAFKA_BROKERS}
+      - KAFKA_BROKERS=kafka:9092
       - OPA_URL=${OPA_URL}
       - JWT_SECRET=${JWT_SECRET}
       - KEYCLOAK_URL=${KEYCLOAK_URL}
+      - REPLAY_SERVICE_URL=${REPLAY_SERVICE_URL:-http://replay-service:5011}
     depends_on:
       - postgres
       - redis
@@ -55,7 +56,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
-      - KAFKA_BROKERS=${KAFKA_BROKERS}
+      - KAFKA_BROKERS=kafka:9092
       - OPA_URL=${OPA_URL}
     depends_on:
       - postgres
@@ -72,7 +73,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
-      - KAFKA_BROKERS=${KAFKA_BROKERS}
+      - KAFKA_BROKERS=kafka:9092
       - OPA_URL=${OPA_URL}
     depends_on:
       - postgres
@@ -89,7 +90,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
-      - KAFKA_BROKERS=${KAFKA_BROKERS}
+      - KAFKA_BROKERS=kafka:9092
       - OPA_URL=${OPA_URL}
     depends_on:
       - postgres
@@ -106,7 +107,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
-      - KAFKA_BROKERS=${KAFKA_BROKERS}
+      - KAFKA_BROKERS=kafka:9092
       - OPA_URL=${OPA_URL}
     depends_on:
       - postgres
@@ -124,7 +125,7 @@ services:
     ports:
       - "${AGENTS_PORT:-5010}:5010"
     environment:
-      - KAFKA_BROKERS=${KAFKA_BROKERS}
+      - KAFKA_BROKERS=kafka:9092
       - OLLAMA_URL=${OLLAMA_URL}
       - WEAVIATE_URL=${WEAVIATE_URL}
       - OPA_URL=${OPA_URL}
@@ -134,6 +135,29 @@ services:
       - weaviate
     networks:
       - crm-network
+
+  replay-service:
+    build:
+      context: ./agents
+      dockerfile: Dockerfile
+    command: ["uvicorn", "replay.api:app", "--host", "0.0.0.0", "--port", "5011"]
+    ports:
+      - "${REPLAY_SERVICE_PORT:-5011}:5011"
+    environment:
+      - DATABASE_URL=${REPLAY_DATABASE_URL:-postgresql://crm_app:crm_password@postgres:5432/enterprise_crm}
+      - KAFKA_BROKERS=kafka:9092
+      - ENABLE_REPLAY_INGESTOR=${ENABLE_REPLAY_INGESTOR:-true}
+      - REPLAY_INGESTOR_GROUP=${REPLAY_INGESTOR_GROUP:-replay-event-ingestor}
+    depends_on:
+      - postgres
+      - kafka
+    networks:
+      - crm-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx; httpx.get('http://localhost:5011/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # ===================
   # Infrastructure
@@ -152,10 +176,23 @@ services:
     networks:
       - crm-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-crm_user}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-crm_user} -d ${POSTGRES_DB:-enterprise_crm}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-crm_user}:${POSTGRES_PASSWORD:-crm_password}@postgres:5432/${POSTGRES_DB:-enterprise_crm}?sslmode=disable
+    depends_on:
+      - postgres
+    networks:
+      - crm-network
 
   redis:
     image: redis:7-alpine
@@ -170,6 +207,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    depends_on:
+      - redis
+    networks:
+      - crm-network
 
   # Kafka with KRaft (no Zookeeper)
   kafka:
@@ -195,10 +241,23 @@ services:
     networks:
       - crm-network
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      test:
+        [
+          "CMD-SHELL",
+          "kafka-broker-api-versions --bootstrap-server localhost:9092",
+        ]
       interval: 30s
       timeout: 10s
       retries: 5
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    command:
+      - "--kafka.server=kafka:9092"
+    depends_on:
+      - kafka
+    networks:
+      - crm-network
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -292,6 +351,7 @@ services:
       - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./observability/alerts:/etc/prometheus/alerts
       - prometheus_data:/prometheus
     networks:
       - crm-network
@@ -305,6 +365,7 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - prometheus
     networks:

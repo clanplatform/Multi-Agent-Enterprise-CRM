@@ -17,6 +17,7 @@ interface WebSocketMessage {
 
 // Store connections by tenant and user
 const connections = new Map<string, Map<string, Set<AuthenticatedWebSocket>>>();
+const subscriptions = new WeakMap<AuthenticatedWebSocket, Set<string>>();
 
 export const setupWebSocket = (wss: WebSocketServer): void => {
   // Heartbeat interval
@@ -47,17 +48,22 @@ export const setupWebSocket = (wss: WebSocketServer): void => {
         token,
         process.env.JWT_SECRET || 'development-secret'
       ) as TokenPayload;
+      const tenantId = decoded.tenantId || decoded.tenant_id;
+      if (!tenantId) {
+        ws.close(4001, 'Invalid token');
+        return;
+      }
       
       ws.userId = decoded.sub;
-      ws.tenantId = decoded.tenantId;
+      ws.tenantId = tenantId;
       ws.isAlive = true;
       
       // Add to connections map
-      addConnection(decoded.tenantId, decoded.sub, ws);
+      addConnection(tenantId, decoded.sub, ws);
       
       logger.info('WebSocket connected', {
         userId: decoded.sub,
-        tenantId: decoded.tenantId,
+        tenantId,
       });
       
       // Send welcome message
@@ -149,15 +155,40 @@ function handleMessage(ws: AuthenticatedWebSocket, message: WebSocketMessage): v
       
     case 'subscribe':
       // Handle topic subscriptions
-      logger.debug('Subscription request', {
-        userId: ws.userId,
-        topic: message.payload.topic,
-      });
+      handleSubscribe(ws, message.payload?.topic);
       break;
       
     default:
       logger.warn('Unknown message type', { type: message.type });
   }
+}
+
+function handleSubscribe(ws: AuthenticatedWebSocket, topic: unknown): void {
+  if (!ws.tenantId || !ws.userId) {
+    ws.close(4001, 'Authentication required');
+    return;
+  }
+
+  if (typeof topic !== 'string' || topic.length === 0) {
+    ws.send(JSON.stringify({ type: 'error', payload: { code: 'INVALID_TOPIC' } }));
+    return;
+  }
+
+  const expectedPrefix = `tenant:${ws.tenantId}:`;
+  if (!topic.startsWith(expectedPrefix)) {
+    ws.send(JSON.stringify({ type: 'error', payload: { code: 'CROSS_TENANT_SUBSCRIBE_DENY' } }));
+    return;
+  }
+
+  let set = subscriptions.get(ws);
+  if (!set) {
+    set = new Set<string>();
+    subscriptions.set(ws, set);
+  }
+  set.add(topic);
+
+  logger.debug('Subscription granted', { userId: ws.userId, topic });
+  ws.send(JSON.stringify({ type: 'subscribed', payload: { topic } }));
 }
 
 // Send message to specific user

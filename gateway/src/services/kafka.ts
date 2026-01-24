@@ -1,5 +1,6 @@
 import { Kafka, Producer, Consumer, EachMessagePayload, logLevel } from 'kafkajs';
 import { logger } from '../utils/logger';
+import { kafkaMessagesConsumed, kafkaMessagesPublished } from './metrics';
 
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'localhost:9092').split(',');
 const KAFKA_CLIENT_ID = process.env.KAFKA_CLIENT_ID || 'enterprise-crm-gateway';
@@ -37,7 +38,8 @@ export interface DomainEvent {
 // Publish domain event
 export const publishEvent = async (
   topic: string,
-  event: Omit<DomainEvent, 'specversion' | 'time' | 'datacontenttype'>
+  event: Omit<DomainEvent, 'specversion' | 'time' | 'datacontenttype'>,
+  options?: { key?: string }
 ): Promise<void> => {
   const fullEvent: DomainEvent = {
     ...event,
@@ -47,10 +49,13 @@ export const publishEvent = async (
   };
   
   try {
+    if (process.env.JEST_WORKER_ID) {
+      return;
+    }
     await kafkaProducer.send({
       topic,
       messages: [{
-        key: event.tenantid,
+        key: options?.key ?? event.tenantid,
         value: JSON.stringify(fullEvent),
         headers: {
           'ce-type': event.type,
@@ -60,10 +65,15 @@ export const publishEvent = async (
         },
       }],
     });
+
+    kafkaMessagesPublished.labels(topic).inc();
     
     logger.debug('Event published', { topic, type: event.type, id: event.id });
   } catch (error) {
     logger.error('Failed to publish event', { topic, type: event.type, error });
+    if (process.env.JEST_WORKER_ID) {
+      return;
+    }
     throw error;
   }
 };
@@ -96,6 +106,7 @@ export const startConsumer = async (
     eachMessage: async (payload) => {
       try {
         await handler(payload);
+        kafkaMessagesConsumed.labels(payload.topic, consumer.groupId).inc();
       } catch (error) {
         logger.error('Message processing failed', {
           topic: payload.topic,
@@ -118,6 +129,7 @@ export const TOPICS = {
   LEADS_CREATED: 'crm.leads.created',
   LEADS_UPDATED: 'crm.leads.updated',
   LEADS_QUALIFIED: 'crm.leads.qualified',
+  LEADS_EVENTS: 'crm.leads.events',
   
   // Deals
   DEALS_CREATED: 'crm.deals.created',
@@ -130,6 +142,7 @@ export const TOPICS = {
   TICKETS_UPDATED: 'crm.tickets.updated',
   TICKETS_RESOLVED: 'crm.tickets.resolved',
   TICKETS_SLA_BREACHED: 'crm.tickets.sla-breached',
+  TICKETS_EVENTS: 'crm.tickets.events',
   
   // Customers
   CUSTOMERS_CREATED: 'crm.customers.created',
@@ -144,6 +157,9 @@ export const TOPICS = {
   // Approvals
   APPROVALS_REQUIRED: 'crm.approvals.required',
   APPROVALS_DECISION: 'crm.approvals.decision',
+
+  // Compliance
+  GDPR_FORGET: 'crm.gdpr.forget',
   
   // Audit & Security
   AUDIT_EVENTS: 'crm.audit.events',

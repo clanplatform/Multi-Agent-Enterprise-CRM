@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
 import { v4 as uuidv4 } from 'uuid';
-import { prisma } from '../services/prisma';
+import { withTenantDb } from '../services/prisma';
 import { publishEvent, TOPICS } from '../services/kafka';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { badRequest, notFound } from '../middleware/errorHandler';
@@ -24,20 +24,22 @@ router.get('/',
       if (req.query.stage) where.stage = req.query.stage;
       if (req.query.assignedTo) where.assignedTo = req.query.assignedTo;
       
-      const [deals, total] = await Promise.all([
-        prisma.deal.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-          include: {
-            lead: { select: { id: true, name: true } },
-            customer: { select: { id: true, name: true } },
-            assignedUser: { select: { id: true, name: true } },
-          },
-        }),
-        prisma.deal.count({ where }),
-      ]);
+      const [deals, total] = await withTenantDb(req.tenantId!, async (db) => {
+        return Promise.all([
+          db.deal.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              lead: { select: { id: true, name: true } },
+              customer: { select: { id: true, name: true } },
+              assignedUser: { select: { id: true, name: true } },
+            },
+          }),
+          db.deal.count({ where }),
+        ]);
+      });
       
       res.json({
         data: deals,
@@ -52,13 +54,15 @@ router.get('/',
 // Get deal
 router.get('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const deal = await prisma.deal.findFirst({
-      where: { id: req.params.id, tenantId: req.tenantId },
-      include: {
-        lead: true,
-        customer: true,
-        assignedUser: { select: { id: true, name: true, email: true } },
-      },
+    const deal = await withTenantDb(req.tenantId!, async (db) => {
+      return db.deal.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+        include: {
+          lead: true,
+          customer: true,
+          assignedUser: { select: { id: true, name: true, email: true } },
+        },
+      });
     });
     
     if (!deal) throw notFound('Deal not found');
@@ -80,21 +84,23 @@ router.post('/',
       if (!errors.isEmpty()) throw badRequest('Validation failed', errors.array());
       
       const dealId = uuidv4();
-      const deal = await prisma.deal.create({
-        data: {
-          id: dealId,
-          tenantId: req.tenantId!,
-          name: req.body.name,
-          leadId: req.body.leadId,
-          customerId: req.body.customerId,
-          amount: req.body.amount,
-          currency: req.body.currency || 'USD',
-          stage: 'prospecting',
-          probability: 10,
-          expectedCloseDate: req.body.expectedCloseDate,
-          createdBy: req.user?.sub,
-          metadata: req.body.metadata || {},
-        },
+      const deal = await withTenantDb(req.tenantId!, async (db) => {
+        return db.deal.create({
+          data: {
+            id: dealId,
+            tenantId: req.tenantId!,
+            name: req.body.name,
+            leadId: req.body.leadId,
+            customerId: req.body.customerId,
+            amount: req.body.amount,
+            currency: req.body.currency || 'USD',
+            stage: 'prospecting',
+            probability: 10,
+            expectedCloseDate: req.body.expectedCloseDate,
+            createdBy: req.user?.sub,
+            metadata: req.body.metadata || {},
+          },
+        });
       });
       
       await publishEvent(TOPICS.DEALS_CREATED, {
@@ -119,22 +125,26 @@ router.patch('/:id/stage',
   body('probability').optional().isInt({ min: 0, max: 100 }),
   async (req: AuthenticatedRequest, res: Response, next) => {
     try {
-      const existing = await prisma.deal.findFirst({
-        where: { id: req.params.id, tenantId: req.tenantId },
-      });
-      
-      if (!existing) throw notFound('Deal not found');
-      
-      const deal = await prisma.deal.update({
-        where: { id: req.params.id },
-        data: {
-          stage: req.body.stage,
-          probability: req.body.probability,
-          ...(req.body.stage.startsWith('closed') && {
-            actualCloseDate: new Date(),
-            won: req.body.stage === 'closed_won',
-          }),
-        },
+      const { existing, deal } = await withTenantDb(req.tenantId!, async (db) => {
+        const existing = await db.deal.findFirst({
+          where: { id: req.params.id, tenantId: req.tenantId },
+        });
+        
+        if (!existing) throw notFound('Deal not found');
+        
+        const deal = await db.deal.update({
+          where: { id: req.params.id },
+          data: {
+            stage: req.body.stage,
+            probability: req.body.probability,
+            ...(req.body.stage.startsWith('closed') && {
+              actualCloseDate: new Date(),
+              won: req.body.stage === 'closed_won',
+            }),
+          },
+        });
+
+        return { existing, deal };
       });
       
       await publishEvent(TOPICS.DEALS_STAGE_CHANGED, {
@@ -171,21 +181,23 @@ router.patch('/:id/stage',
 router.patch('/:id',
   async (req: AuthenticatedRequest, res: Response, next) => {
     try {
-      const existing = await prisma.deal.findFirst({
-        where: { id: req.params.id, tenantId: req.tenantId },
-      });
-      
-      if (!existing) throw notFound('Deal not found');
-      
-      const deal = await prisma.deal.update({
-        where: { id: req.params.id },
-        data: {
-          ...(req.body.name && { name: req.body.name }),
-          ...(req.body.amount && { amount: req.body.amount }),
-          ...(req.body.expectedCloseDate && { expectedCloseDate: new Date(req.body.expectedCloseDate) }),
-          ...(req.body.assignedTo && { assignedTo: req.body.assignedTo }),
-          ...(req.body.metadata && { metadata: req.body.metadata }),
-        },
+      const deal = await withTenantDb(req.tenantId!, async (db) => {
+        const existing = await db.deal.findFirst({
+          where: { id: req.params.id, tenantId: req.tenantId },
+        });
+        
+        if (!existing) throw notFound('Deal not found');
+        
+        return db.deal.update({
+          where: { id: req.params.id },
+          data: {
+            ...(req.body.name && { name: req.body.name }),
+            ...(req.body.amount && { amount: req.body.amount }),
+            ...(req.body.expectedCloseDate && { expectedCloseDate: new Date(req.body.expectedCloseDate) }),
+            ...(req.body.assignedTo && { assignedTo: req.body.assignedTo }),
+            ...(req.body.metadata && { metadata: req.body.metadata }),
+          },
+        });
       });
       
       await publishEvent(TOPICS.DEALS_UPDATED, {
@@ -206,13 +218,15 @@ router.patch('/:id',
 // Delete deal
 router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const deal = await prisma.deal.findFirst({
-      where: { id: req.params.id, tenantId: req.tenantId },
+    await withTenantDb(req.tenantId!, async (db) => {
+      const deal = await db.deal.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+      });
+      
+      if (!deal) throw notFound('Deal not found');
+      
+      await db.deal.delete({ where: { id: req.params.id } });
     });
-    
-    if (!deal) throw notFound('Deal not found');
-    
-    await prisma.deal.delete({ where: { id: req.params.id } });
     logger.info('Deal deleted', { dealId: req.params.id, tenantId: req.tenantId });
     res.status(204).send();
   } catch (error) {

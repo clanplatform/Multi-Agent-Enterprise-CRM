@@ -38,6 +38,7 @@ export const tenantMiddleware = async (
     
     // Set tenant context header for downstream services
     req.headers['x-tenant-id'] = req.tenantId;
+    req.headers['x-token-tenant-id'] = tokenTenantId;
     
     logger.debug('Tenant context set', { tenantId: req.tenantId });
     

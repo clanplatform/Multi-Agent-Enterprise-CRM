@@ -23,10 +23,12 @@ role_permissions = {
         "customers:read"
     ],
     "analyst": [
-        "leads:read", "deals:read", "tickets:read", "customers:read"
+        "leads:read", "deals:read", "tickets:read", "customers:read",
+        "aggregates:read", "replay:read", "replay:write"
     ],
     "viewer": [
-        "leads:read", "deals:read", "tickets:read", "customers:read"
+        "leads:read", "deals:read", "tickets:read", "customers:read",
+        "aggregates:read", "replay:read"
     ]
 }
 

@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { query } from 'express-validator';
-import { prisma } from '../services/prisma';
+import { withTenantDb } from '../services/prisma';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { notFound } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
@@ -10,9 +10,11 @@ const router = Router();
 // List registered AI agents
 router.get('/', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const agents = await prisma.aiAgent.findMany({
-      where: { isActive: true },
-      orderBy: { name: 'asc' },
+    const agents = await withTenantDb(req.tenantId!, async (db) => {
+      return db.aiAgent.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' },
+      });
     });
     
     res.json({ data: agents });
@@ -24,8 +26,10 @@ router.get('/', async (req: AuthenticatedRequest, res: Response, next) => {
 // Get agent details
 router.get('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const agent = await prisma.aiAgent.findUnique({
-      where: { id: req.params.id },
+    const agent = await withTenantDb(req.tenantId!, async (db) => {
+      return db.aiAgent.findUnique({
+        where: { id: req.params.id },
+      });
     });
     
     if (!agent) throw notFound('Agent not found');
@@ -53,18 +57,20 @@ router.get('/:id/tasks',
         where.status = req.query.status;
       }
       
-      const [tasks, total] = await Promise.all([
-        prisma.agentTask.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-          include: {
-            agent: { select: { id: true, name: true, type: true } },
-          },
-        }),
-        prisma.agentTask.count({ where }),
-      ]);
+      const [tasks, total] = await withTenantDb(req.tenantId!, async (db) => {
+        return Promise.all([
+          db.agentTask.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              agent: { select: { id: true, name: true, type: true } },
+            },
+          }),
+          db.agentTask.count({ where }),
+        ]);
+      });
       
       res.json({
         data: tasks,
@@ -79,18 +85,20 @@ router.get('/:id/tasks',
 // Get task details
 router.get('/tasks/:taskId', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const task = await prisma.agentTask.findFirst({
-      where: {
-        id: req.params.taskId,
-        tenantId: req.tenantId,
-      },
-      include: {
-        agent: true,
-        events: {
-          orderBy: { createdAt: 'desc' },
-          take: 50,
+    const task = await withTenantDb(req.tenantId!, async (db) => {
+      return db.agentTask.findFirst({
+        where: {
+          id: req.params.taskId,
+          tenantId: req.tenantId,
         },
-      },
+        include: {
+          agent: true,
+          events: {
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+          },
+        },
+      });
     });
     
     if (!task) throw notFound('Task not found');
@@ -118,15 +126,17 @@ router.get('/:id/events',
         where.eventType = req.query.eventType;
       }
       
-      const [events, total] = await Promise.all([
-        prisma.agentEvent.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-        }),
-        prisma.agentEvent.count({ where }),
-      ]);
+      const [events, total] = await withTenantDb(req.tenantId!, async (db) => {
+        return Promise.all([
+          db.agentEvent.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+          }),
+          db.agentEvent.count({ where }),
+        ]);
+      });
       
       res.json({
         data: events,
@@ -141,15 +151,17 @@ router.get('/:id/events',
 // Get event reasoning details
 router.get('/events/:eventId/reasoning', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const event = await prisma.agentEvent.findFirst({
-      where: {
-        id: req.params.eventId,
-        tenantId: req.tenantId,
-      },
-      include: {
-        agent: { select: { id: true, name: true, type: true } },
-        task: { select: { id: true, taskType: true } },
-      },
+    const event = await withTenantDb(req.tenantId!, async (db) => {
+      return db.agentEvent.findFirst({
+        where: {
+          id: req.params.eventId,
+          tenantId: req.tenantId,
+        },
+        include: {
+          agent: { select: { id: true, name: true, type: true } },
+          task: { select: { id: true, taskType: true } },
+        },
+      });
     });
     
     if (!event) throw notFound('Event not found');

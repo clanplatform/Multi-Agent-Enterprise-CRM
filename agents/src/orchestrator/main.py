@@ -6,17 +6,20 @@ Consumes events from Kafka and routes them to appropriate agents.
 """
 
 import asyncio
+import json
 import signal
 import os
 from contextlib import asynccontextmanager
 
 import structlog
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from aiokafka.structs import OffsetAndMetadata, TopicPartition
 import httpx
 from aiohttp import web
 
 from .router import AgentRouter
 from .config import settings
+from governance.agent_telemetry import agents_running, metrics_response
 
 # Configure structured logging
 structlog.configure(
@@ -45,6 +48,8 @@ class AgentOrchestrator:
         self.producer: AIOKafkaProducer = None
         self.router = AgentRouter()
         self.running = False
+        self._paused_partitions: dict[TopicPartition, str] = {}
+        self._resume_task: asyncio.Task | None = None
         
     async def start(self):
         """Start the orchestrator."""
@@ -56,7 +61,7 @@ class AgentOrchestrator:
             bootstrap_servers=settings.KAFKA_BROKERS,
             group_id=settings.KAFKA_GROUP_ID,
             auto_offset_reset="latest",
-            enable_auto_commit=True,
+            enable_auto_commit=False,
             value_deserializer=lambda m: m.decode("utf-8"),
         )
         
@@ -71,7 +76,10 @@ class AgentOrchestrator:
         await self.router.initialize(self.producer)
         
         self.running = True
+        agents_running.set(1)
         logger.info("Agent Orchestrator started", topics=settings.CONSUME_TOPICS)
+
+        self._resume_task = asyncio.create_task(self._resume_loop())
         
         # Start consuming
         await self._consume_loop()
@@ -84,7 +92,10 @@ class AgentOrchestrator:
                     break
                     
                 try:
-                    await self._process_message(message)
+                    processed = await self._process_message(message)
+                    if processed:
+                        tp = TopicPartition(message.topic, message.partition)
+                        await self.consumer.commit({tp: OffsetAndMetadata(message.offset + 1, "")})
                 except Exception as e:
                     logger.error(
                         "Failed to process message",
@@ -105,13 +116,43 @@ class AgentOrchestrator:
             partition=message.partition,
             offset=message.offset,
         )
-        
+
+        tenant_id = None
+        try:
+            event = json.loads(message.value)
+            tenant_id = event.get("tenantid") or event.get("tenantId") or event.get("data", {}).get("tenantId")
+        except Exception:
+            tenant_id = None
+
+        if tenant_id:
+            decision = await self.router.kill_switch.decision(tenant_id=str(tenant_id), agent_id="agent-orchestrator")
+            if decision.blocked:
+                tp = TopicPartition(message.topic, message.partition)
+                self.consumer.pause([tp])
+                await self.consumer.seek(tp, message.offset)
+                self._paused_partitions[tp] = str(tenant_id)
+                logger.warning(
+                    "Paused partition due to kill switch",
+                    tenant_id=str(tenant_id),
+                    topic=message.topic,
+                    partition=message.partition,
+                    scope_key=decision.scope_key,
+                    state=decision.status.state.value if decision.status else None,
+                )
+                return False
+
         await self.router.route(message.topic, message.value)
+        return True
         
     async def stop(self):
         """Stop the orchestrator."""
         logger.info("Stopping Agent Orchestrator")
         self.running = False
+        agents_running.set(0)
+
+        if self._resume_task:
+            self._resume_task.cancel()
+            self._resume_task = None
         
         if self.consumer:
             await self.consumer.stop()
@@ -121,17 +162,41 @@ class AgentOrchestrator:
             
         logger.info("Agent Orchestrator stopped")
 
+    async def _resume_loop(self) -> None:
+        while self.running:
+            if not self._paused_partitions:
+                await asyncio.sleep(0.2)
+                continue
+
+            items = list(self._paused_partitions.items())
+            for tp, tenant_id in items:
+                decision = await self.router.kill_switch.decision(tenant_id=tenant_id, agent_id="agent-orchestrator")
+                if not decision.blocked:
+                    self.consumer.resume([tp])
+                    self._paused_partitions.pop(tp, None)
+                    logger.info(
+                        "Resumed partition after kill switch cleared",
+                        tenant_id=tenant_id,
+                        topic=tp.topic,
+                        partition=tp.partition,
+                    )
+            await asyncio.sleep(0.2)
+
 
 # Health check server
 async def health_handler(request):
     """Health check endpoint."""
     return web.json_response({"status": "healthy"})
 
+async def metrics_handler(request):
+    resp = metrics_response()
+    return web.Response(body=resp.body, content_type=resp.content_type)
 
 async def run_health_server():
     """Run the health check HTTP server."""
     app = web.Application()
     app.router.add_get("/health", health_handler)
+    app.router.add_get("/metrics", metrics_handler)
     
     runner = web.AppRunner(app)
     await runner.setup()

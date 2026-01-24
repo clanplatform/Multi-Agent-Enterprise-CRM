@@ -20,6 +20,10 @@ redisClient.on('error', (error) => {
   logger.error('Redis error', { error: error.message });
 });
 
+export const tenantKey = (tenantId: string, key: string): string => {
+  return `tenant:${tenantId}:${key}`;
+};
+
 // Cache utilities
 export const cache = {
   // Get with JSON parse

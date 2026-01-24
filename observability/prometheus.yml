@@ -2,60 +2,69 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - /etc/prometheus/alerts/*.yaml
+
 scrape_configs:
   # Gateway metrics
-  - job_name: 'gateway'
+  - job_name: "gateway"
     static_configs:
-      - targets: ['gateway:4000']
+      - targets: ["gateway:4000"]
     metrics_path: /metrics
 
   # Leads service
-  - job_name: 'leads-service'
+  - job_name: "leads-service"
     static_configs:
-      - targets: ['leads-service:5001']
+      - targets: ["leads-service:5001"]
     metrics_path: /metrics
 
   # Deals service
-  - job_name: 'deals-service'
+  - job_name: "deals-service"
     static_configs:
-      - targets: ['deals-service:5002']
+      - targets: ["deals-service:5002"]
     metrics_path: /metrics
 
   # Tickets service
-  - job_name: 'tickets-service'
+  - job_name: "tickets-service"
     static_configs:
-      - targets: ['tickets-service:5003']
+      - targets: ["tickets-service:5003"]
     metrics_path: /metrics
 
   # Customers service
-  - job_name: 'customers-service'
+  - job_name: "customers-service"
     static_configs:
-      - targets: ['customers-service:5004']
+      - targets: ["customers-service:5004"]
     metrics_path: /metrics
 
   # AI Agents
-  - job_name: 'agents'
+  - job_name: "agents"
     static_configs:
-      - targets: ['agents:5010']
+      - targets: ["agents:5010"]
+    metrics_path: /metrics
+
+  # Replay Service
+  - job_name: "replay-service"
+    static_configs:
+      - targets: ["replay-service:5011"]
     metrics_path: /metrics
 
   # Kafka
-  - job_name: 'kafka'
+  - job_name: "kafka"
     static_configs:
-      - targets: ['kafka:9092']
+      - targets: ["kafka-exporter:9308"]
 
   # Redis
-  - job_name: 'redis'
+  - job_name: "redis"
     static_configs:
-      - targets: ['redis:6379']
+      - targets: ["redis-exporter:9121"]
 
   # PostgreSQL
-  - job_name: 'postgres'
+  - job_name: "postgres"
     static_configs:
-      - targets: ['postgres:5432']
+      - targets: ["postgres-exporter:9187"]
 
   # OPA
-  - job_name: 'opa'
+  - job_name: "opa"
     static_configs:
-      - targets: ['opa:8181']
+      - targets: ["opa:8181"]
     metrics_path: /metrics

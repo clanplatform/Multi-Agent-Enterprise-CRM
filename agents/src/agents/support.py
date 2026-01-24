@@ -15,7 +15,8 @@ from datetime import datetime
 import structlog
 
 from .base import BaseAgent
-from ..orchestrator.config import settings
+from orchestrator.config import settings
+from governance.approval_service import PendingAction
 
 logger = structlog.get_logger()
 
@@ -77,7 +78,7 @@ Provide your response in JSON format:
 Prioritize customer satisfaction. Flag escalation for complex or urgent issues."""
 
         try:
-            response = await self.call_llm(prompt, system_prompt)
+            response = await self.call_llm(prompt, system_prompt, tenant_id=tenant_id)
             result = self._parse_json_response(response)
             
             confidence = result.get("confidence", 0.7)
@@ -108,6 +109,29 @@ Prioritize customer satisfaction. Flag escalation for complex or urgent issues."
             
             # If escalation needed, request approval
             if result.get("requires_escalation"):
+                approval_id = str(uuid.uuid4())
+                if self._approval_service:
+                    await self._approval_service.request_approval(
+                        PendingAction(
+                            tenant_id=tenant_id,
+                            agent_id=self.agent_id,
+                            approval_id=approval_id,
+                            action_type="tickets:escalate",
+                            topic="crm.tickets.escalate",
+                            event_type="crm.tickets.escalate",
+                            data={
+                                "ticketId": ticket_id,
+                                "category": result.get("category"),
+                                "urgency": result.get("urgency"),
+                                "keyIssues": result.get("key_issues", []),
+                                "escalationReason": result.get("escalation_reason"),
+                                "requestedBy": self.agent_id,
+                                "approvalId": approval_id,
+                            },
+                            correlation_id=event.get("correlationid"),
+                        )
+                    )
+
                 await self.request_approval(
                     tenant_id=tenant_id,
                     action_type="tickets:escalate",
@@ -121,6 +145,7 @@ Prioritize customer satisfaction. Flag escalation for complex or urgent issues."
                     },
                     reasoning=result.get("escalation_reason", "Escalation recommended"),
                     confidence=confidence,
+                    approval_id=approval_id,
                 )
                 
             # Emit triage result
