@@ -3,7 +3,6 @@ import { query } from 'express-validator';
 import { withTenantDb } from '../services/prisma';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { notFound } from '../middleware/errorHandler';
-import { logger } from '../utils/logger';
 
 const router = Router();
 

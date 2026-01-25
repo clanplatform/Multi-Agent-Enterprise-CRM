@@ -94,7 +94,8 @@ export type MessageHandler = (payload: EachMessagePayload) => Promise<void>;
 export const startConsumer = async (
   consumer: Consumer,
   topics: string[],
-  handler: MessageHandler
+  handler: MessageHandler,
+  groupId: string = 'unknown'
 ): Promise<void> => {
   await consumer.connect();
   
@@ -106,7 +107,7 @@ export const startConsumer = async (
     eachMessage: async (payload) => {
       try {
         await handler(payload);
-        kafkaMessagesConsumed.labels(payload.topic, consumer.groupId).inc();
+        kafkaMessagesConsumed.labels(payload.topic, groupId).inc();
       } catch (error) {
         logger.error('Message processing failed', {
           topic: payload.topic,

@@ -4,9 +4,10 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../services/prisma';
 import { generateToken, generateRefreshToken, verifyRefreshToken } from '../middleware/auth';
-import { badRequest, unauthorized, notFound } from '../middleware/errorHandler';
+import { badRequest, unauthorized } from '../middleware/errorHandler';
 import { redisClient } from '../services/redis';
 import { logger } from '../utils/logger';
+import { Prisma } from '@prisma/client';
 
 const router = Router();
 const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
@@ -25,7 +26,7 @@ router.post('/login',
       
       const { email, password, tenantSlug } = req.body;
 
-      const { user, roles } = await prisma.$transaction(async (db) => {
+      const { user, roles } = await prisma.$transaction(async (db: Prisma.TransactionClient) => {
         await db.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${SYSTEM_TENANT_ID}'`);
 
         const tenant = await db.tenant.findUnique({
@@ -61,7 +62,7 @@ router.post('/login',
           throw unauthorized('Account is not active');
         }
 
-        const roles = user.userRoles.map(ur => ur.role.name);
+        const roles = user.userRoles.map((ur: { role: { name: string } }) => ur.role.name);
 
         await db.user.update({
           where: { id: user.id },
@@ -127,7 +128,7 @@ router.post('/refresh',
         throw unauthorized('Invalid refresh token');
       }
       
-      const user = await prisma.$transaction(async (db) => {
+      const user = await prisma.$transaction(async (db: Prisma.TransactionClient) => {
         await db.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${tenantId}'`);
         return db.user.findFirst({
           where: { id: userId, tenantId },
@@ -144,7 +145,7 @@ router.post('/refresh',
       }
       
       // Generate new tokens
-      const roles = user.userRoles.map(ur => ur.role.name);
+      const roles = user.userRoles.map((ur: { role: { name: string } }) => ur.role.name);
       const newAccessToken = generateToken({
         sub: user.id,
         tenantId: user.tenantId,
@@ -216,7 +217,7 @@ router.post('/register',
       const passwordHash = await bcrypt.hash(password, 12);
       
       // Create tenant, user, and admin role in transaction
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${SYSTEM_TENANT_ID}'`);
         // Create tenant
         const tenant = await tx.tenant.create({

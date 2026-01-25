@@ -44,7 +44,8 @@ def _apply_lead_event(event: CanonicalEvent, state: dict[str, Any]) -> dict[str,
         return state
 
     if event.event_type.endswith("leads.updated") or event.event_type.endswith("lead.updated"):
-        changes = payload.get("changes") if isinstance(payload.get("changes"), dict) else payload
+        changes_raw = payload.get("changes")
+        changes: dict[str, Any] = changes_raw if isinstance(changes_raw, dict) else (payload if isinstance(payload, dict) else {})
         for key in (
             "name",
             "email",
@@ -88,7 +89,8 @@ def _apply_ticket_event(event: CanonicalEvent, state: dict[str, Any]) -> dict[st
         return state
 
     if event.event_type.endswith("tickets.updated") or event.event_type.endswith("ticket.updated"):
-        changes = payload.get("changes") if isinstance(payload.get("changes"), dict) else payload
+        changes_raw = payload.get("changes")
+        changes: dict[str, Any] = changes_raw if isinstance(changes_raw, dict) else (payload if isinstance(payload, dict) else {})
         for key in (
             "subject",
             "description",

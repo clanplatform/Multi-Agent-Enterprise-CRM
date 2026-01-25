@@ -175,9 +175,9 @@ class AgentKillSwitch:
         ]
 
         cached = await self._get_from_cache(keys)
-        for key, status in cached:
-            if status and status.state in (KillSwitchState.PAUSED, KillSwitchState.KILLED):
-                return KillSwitchDecision(blocked=True, status=status, scope_key=key)
+        for key, cached_status in cached:
+            if cached_status is not None and cached_status.state in (KillSwitchState.PAUSED, KillSwitchState.KILLED):
+                return KillSwitchDecision(blocked=True, status=cached_status, scope_key=key)
 
         try:
             assert self._redis
@@ -188,9 +188,9 @@ class AgentKillSwitch:
             status = KillSwitchStatus(state=KillSwitchState.KILLED, updated_at_ms=_now_ms(), reason="redis_unavailable")
             return KillSwitchDecision(blocked=True, status=status, scope_key="redis_unavailable")
 
-        for key, status in zip(keys, statuses):
-            if status and status.state in (KillSwitchState.PAUSED, KillSwitchState.KILLED):
-                return KillSwitchDecision(blocked=True, status=status, scope_key=key)
+        for key, fetched_status in zip(keys, statuses):
+            if fetched_status is not None and fetched_status.state in (KillSwitchState.PAUSED, KillSwitchState.KILLED):
+                return KillSwitchDecision(blocked=True, status=fetched_status, scope_key=key)
 
         return KillSwitchDecision(blocked=False, status=None, scope_key=None)
 

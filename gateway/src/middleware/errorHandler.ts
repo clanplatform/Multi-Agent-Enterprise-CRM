@@ -11,7 +11,7 @@ export const errorHandler = (
   err: AppError,
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ): void => {
   const correlationId = req.headers['x-correlation-id'];
   

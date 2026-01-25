@@ -12,7 +12,7 @@ export const prisma = new PrismaClient({
 
 // Log slow queries in development
 if (process.env.NODE_ENV !== 'production') {
-  prisma.$on('query', (e) => {
+  prisma.$on('query' as never, (e: { duration: number; query: string }) => {
     if (e.duration > 100) {
       logger.warn('Slow query detected', {
         query: e.query,
@@ -34,7 +34,7 @@ export const withTenantDb = async <T>(
     throw new Error('Missing or invalid tenant_id');
   }
 
-  return prisma.$transaction(async (db) => {
+  return prisma.$transaction(async (db: Prisma.TransactionClient) => {
     await db.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${tenantId}'`);
     return fn(db);
   });

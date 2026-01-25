@@ -31,8 +31,8 @@ class BaseAgent(ABC):
         self.agent_id = agent_id
         self.agent_type = agent_type
         self.capabilities = capabilities
-        self.producer: AIOKafkaProducer = None
-        self.http_client: httpx.AsyncClient = None
+        self.producer: Optional[AIOKafkaProducer] = None
+        self.http_client: Optional[httpx.AsyncClient] = None
         self._governance_guard: GovernanceGuard | None = None
         self._data_guard: DataGuard | None = None
         self._approval_service: ApprovalService | None = None
@@ -161,7 +161,7 @@ class BaseAgent(ABC):
                     action_type=event_type,
                     risk_level=str(data.get("riskLevel") or "LOW"),
                     status="executed",
-                    confidence=float(data.get("confidence")) if data.get("confidence") is not None else None,
+                    confidence=float(data["confidence"]) if data.get("confidence") is not None else None,
                     input_context={},
                     reasoning={"factors": data.get("factors"), "reasoning": data.get("reasoning")},
                     evidence=[{"type": "kafka_topic", "value": topic}, {"type": "event_id", "value": event["id"]}],
