@@ -24,8 +24,16 @@ def database_url() -> str:
         return "postgresql://crm_user:crm_password@localhost:5432/enterprise_crm"
     return url
 
+
+@pytest.fixture(scope="session")
+def admin_database_url() -> str:
+    url = os.environ.get("ADMIN_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    if not url:
+        return "postgresql://crm_user:crm_password@localhost:5432/enterprise_crm"
+    return url
+
 @pytest_asyncio.fixture(scope="session", autouse=True)
-async def init_schema(database_url: str):
+async def init_schema(admin_database_url: str):
     """
     Apply database migrations to the test database.
     This runs once per session.
@@ -33,7 +41,7 @@ async def init_schema(database_url: str):
     # Create a connection to the database
     # Note: This assumes the database exists. 
     try:
-        conn = await asyncpg.connect(database_url)
+        conn = await asyncpg.connect(admin_database_url)
     except Exception as e:
         print(f"Skipping schema initialization, could not connect to DB: {e}")
         return

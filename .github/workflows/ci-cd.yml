@@ -156,7 +156,8 @@ jobs:
         run: pytest --cov=src --cov-report=xml
         working-directory: agents
         env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/test_db
+          ADMIN_DATABASE_URL: postgresql://test:test@localhost:5432/test_db
+          DATABASE_URL: postgresql://crm_app:crm_password@localhost:5432/test_db
         
       - name: Upload coverage
         uses: codecov/codecov-action@v3

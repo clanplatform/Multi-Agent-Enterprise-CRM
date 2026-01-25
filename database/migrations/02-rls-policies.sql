@@ -37,7 +37,7 @@ BEGIN
 
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', t || '_tenant_isolation', t);
     EXECUTE format(
-      'CREATE POLICY %I ON %I FOR ALL USING (tenant_id::text = current_setting(''app.tenant_id'', true)) WITH CHECK (tenant_id::text = current_setting(''app.tenant_id'', true))',
+      'CREATE POLICY %I ON %I FOR ALL USING (tenant_id = current_setting(''app.tenant_id'')::uuid) WITH CHECK (tenant_id = current_setting(''app.tenant_id'')::uuid)',
       t || '_tenant_isolation',
       t
     );
