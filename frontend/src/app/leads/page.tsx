@@ -217,7 +217,9 @@ export default function LeadsPage() {
                             />
                             <span className="text-sm font-medium">{lead.score}</span>
                           </div>
-                          <Bot size={14} className="ml-2 text-primary-500" title="AI-scored" />
+                          <span className="ml-2 inline-flex" title="AI-scored" aria-label="AI-scored">
+                            <Bot size={14} className="text-primary-500" />
+                          </span>
                         </div>
                       ) : (
                         <span className="text-gray-400 text-sm">Not scored</span>

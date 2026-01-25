@@ -23,7 +23,9 @@ def database_url() -> str:
 
 @pytest.fixture(scope="session")
 def admin_database_url() -> str:
-    return os.environ.get("ADMIN_DATABASE_URL", "postgresql://crm_user:crm_password@localhost:5432/enterprise_crm")
+    return os.environ.get("ADMIN_DATABASE_URL") or os.environ.get(
+        "DATABASE_URL", "postgresql://crm_user:crm_password@localhost:5432/enterprise_crm"
+    )
 
 
 @pytest_asyncio.fixture()
