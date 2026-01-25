@@ -46,7 +46,7 @@ export const setupWebSocket = (wss: WebSocketServer): void => {
     try {
       const decoded = jwt.verify(
         token,
-        process.env.JWT_SECRET || 'development-secret'
+        process.env.JWT_SECRET || 'development-secret-change-in-production'
       ) as TokenPayload;
       const tenantId = decoded.tenantId || decoded.tenant_id;
       if (!tenantId) {

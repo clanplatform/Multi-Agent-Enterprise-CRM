@@ -37,6 +37,7 @@ model Tenant {
   aiMemory       AiMemory[]
   approvals      Approval[]
   auditLogs      AuditLog[]
+  dataRetentionPolicies DataRetentionPolicy[]
   securityEvents SecurityEvent[]
   domainEvents   DomainEvent[]
   userRoles      UserRole[]

@@ -7,6 +7,7 @@
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "pretest": "prisma generate",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "prisma:generate": "prisma generate",

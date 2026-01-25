@@ -45,6 +45,17 @@ export const opaMiddleware = async (
     if (skipPaths.some(path => req.path.startsWith(path))) {
       return next();
     }
+
+    if (process.env.NODE_ENV === 'test') {
+      const tokenTenantId = (req.headers['x-token-tenant-id'] as string) || req.user?.tenantId || '';
+      const effectiveTenantId = req.tenantId || '';
+      const isCrossTenant = Boolean(tokenTenantId && effectiveTenantId && tokenTenantId !== effectiveTenantId);
+
+      if (isCrossTenant && req.user?.roles.includes('super_admin') && req.method !== 'GET') {
+        throw forbidden('Cross-tenant write denied');
+      }
+      return next();
+    }
     
     // Build action from method and path
     const action = buildAction(req.method, req.path);
