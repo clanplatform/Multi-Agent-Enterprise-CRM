@@ -1,8 +1,10 @@
 # Role-Based Access Control Policy
 package enterprise_crm.rbac
 
+import rego.v1
+
 # Role definitions with permissions
-role_permissions = {
+role_permissions := {
     "admin": ["*"],
     "sales_manager": [
         "leads:read", "leads:write", "leads:delete", "leads:assign",
@@ -32,15 +34,15 @@ role_permissions = {
     ]
 }
 
-default allow = false
+default allow := false
 
 # Allow if admin
-allow {
+allow if {
     input.user.roles[_] == "admin"
 }
 
 # Allow if role has permission
-allow {
+allow if {
     role := input.user.roles[_]
     perms := role_permissions[role]
     perms[_] == input.action

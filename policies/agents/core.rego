@@ -1,8 +1,10 @@
 # AI Agent Core Governance Policy
 package enterprise_crm.agents
 
+import rego.v1
+
 # Agent capability definitions
-agent_capabilities = {
+agent_capabilities := {
     "sales-agent": [
         "leads:qualify", "leads:score", "leads:analyze",
         "deals:analyze", "deals:recommend"
@@ -18,22 +20,22 @@ agent_capabilities = {
     ]
 }
 
-default allow = false
+default allow := false
 
 # Allow if agent has capability
-allow {
+allow if {
     caps := agent_capabilities[input.agent.type]
     caps[_] == input.action
 }
 
 # Check if approval required
-default requires_approval = false
+default requires_approval := false
 
-requires_approval {
+requires_approval if {
     input.confidence < 0.7
 }
 
-requires_approval {
+requires_approval if {
     input.action == "deals:close"
     input.context.amount > 50000
 }

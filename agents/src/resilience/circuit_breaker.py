@@ -4,12 +4,11 @@ import asyncio
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Awaitable, Callable, Optional, TypeVar
-
-T = TypeVar("T")
-
+from typing import Awaitable, Callable, TypeVar
 
 from prometheus_client import Counter, Gauge, Histogram
+
+T = TypeVar("T")
 
 
 circuit_breaker_state = Gauge(

@@ -1,36 +1,38 @@
 # Attribute-Based Access Control Policy
 package enterprise_crm.abac
 
-default allow = false
+import rego.v1
+
+default allow := false
 
 # Allow if user owns the resource
-allow {
+allow if {
     input.resource.owner_id == input.user.id
 }
 
 # Allow if user is assigned to the resource
-allow {
+allow if {
     input.resource.assigned_to == input.user.id
 }
 
 # Allow read for analysts
-allow {
+allow if {
     input.action == "read"
     input.user.roles[_] == "analyst"
 }
 
 # Allow managers for leads/deals actions
-allow {
+allow if {
     input.user.roles[_] == "sales_manager"
     startswith(input.action, "leads:")
 }
 
-allow {
+allow if {
     input.user.roles[_] == "sales_manager"
     startswith(input.action, "deals:")
 }
 
-allow {
+allow if {
     input.user.roles[_] == "support_manager"
     startswith(input.action, "tickets:")
 }

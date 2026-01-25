@@ -9,12 +9,10 @@ import asyncio
 import json
 import signal
 import os
-from contextlib import asynccontextmanager
 
 import structlog
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.structs import OffsetAndMetadata, TopicPartition
-import httpx
 from aiohttp import web
 
 from .router import AgentRouter

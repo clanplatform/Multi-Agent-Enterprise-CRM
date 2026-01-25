@@ -4,8 +4,8 @@ Unit tests for AI Agents
 
 import pytest
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from unittest.mock import AsyncMock
+
 
 # Test the sales agent
 class TestSalesAgent:

@@ -9,13 +9,11 @@ Responsible for:
 
 import json
 import uuid
-from typing import Dict, Any, List
-from datetime import datetime
+from typing import Dict, Any
 
 import structlog
 
 from .base import BaseAgent
-from orchestrator.config import settings
 from governance.approval_service import PendingAction
 
 logger = structlog.get_logger()
@@ -186,10 +184,6 @@ Prioritize customer satisfaction. Flag escalation for complex or urgent issues."
             
     async def suggest_resolution(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """Suggest resolution for a ticket."""
-        tenant_id = event.get("tenantid", "")
-        data = event.get("data", {})
-        ticket_id = data.get("ticketId")
-        
         # TODO: Search knowledge base for similar issues
         # TODO: Provide step-by-step resolution
         

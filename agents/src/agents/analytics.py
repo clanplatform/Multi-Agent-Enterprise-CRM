@@ -9,8 +9,7 @@ Responsible for:
 """
 
 import json
-import uuid
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import datetime
 
 import structlog
@@ -75,9 +74,6 @@ class AnalyticsAgent(BaseAgent):
         """Track deal pipeline movements."""
         tenant_id = event.get("tenantid", "")
         data = event.get("data", {})
-        
-        # Calculate stage duration if possible
-        stage_duration = None  # Would calculate from timestamps
         
         # Detect anomalies (e.g., skipped stages, backwards movement)
         previous_stage = data.get("previousStage", "")

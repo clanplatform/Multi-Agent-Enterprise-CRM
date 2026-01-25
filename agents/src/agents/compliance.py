@@ -8,10 +8,7 @@ Responsible for:
 - Risk assessment
 """
 
-import json
-import uuid
 from typing import Dict, Any
-from datetime import datetime
 
 import structlog
 
