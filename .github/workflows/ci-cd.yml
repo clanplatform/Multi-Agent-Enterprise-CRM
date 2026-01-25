@@ -244,7 +244,10 @@ jobs:
     name: Deploy to Staging
     runs-on: ubuntu-latest
     needs: build
+    if: ${{ secrets.KUBE_CONFIG_STAGING != '' }}
     environment: staging
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -272,6 +275,7 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: deploy-staging
+    if: ${{ secrets.STAGING_API_URL != '' && secrets.TEST_USER_EMAIL != '' && secrets.TEST_USER_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -297,7 +301,10 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: integration-tests
+    if: ${{ secrets.KUBE_CONFIG_PRODUCTION != '' }}
     environment: production
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
