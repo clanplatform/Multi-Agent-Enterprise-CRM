@@ -82,6 +82,9 @@ class BaseAgent(ABC):
                 "confidence": confidence,
             }
 
+            if not self.http_client:
+                raise RuntimeError("http_client not initialized")
+
             core_resp = await self.http_client.post(
                 f"{settings.OPA_URL}/v1/data/enterprise_crm/agents",
                 json={"input": policy_input},
@@ -144,6 +147,9 @@ class BaseAgent(ABC):
             "data": data,
         }
         
+        if not self.producer:
+            raise RuntimeError("producer not initialized")
+
         await self.producer.send(
             topic,
             value=json.dumps(event),
@@ -255,6 +261,9 @@ class BaseAgent(ABC):
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": prompt})
             
+            if not self.http_client:
+                raise RuntimeError("http_client not initialized")
+
             response = await self.http_client.post(
                 f"{settings.OLLAMA_URL}/api/chat",
                 json={

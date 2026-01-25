@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, createContext, useContext, ReactNode } from 'react';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4000';
 
@@ -117,7 +117,6 @@ export function useWebSocket() {
 }
 
 // Context for sharing WebSocket across components
-import { createContext, useContext, ReactNode } from 'react';
 
 interface WebSocketContextValue {
   isConnected: boolean;

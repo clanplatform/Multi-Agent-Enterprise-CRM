@@ -36,7 +36,7 @@ export function EventTimeline({ tenantId, aggregateType, aggregateId, jobId }: E
     refetchInterval: 2000,
   });
 
-  const events = timelineQuery.data || [];
+  const events = useMemo(() => timelineQuery.data || [], [timelineQuery.data]);
   const eventTypes = useMemo(() => Array.from(new Set(events.map((e) => e.event_type))).sort(), [events]);
   const filtered = useMemo(
     () => (filter ? events.filter((e) => e.event_type === filter) : events),
