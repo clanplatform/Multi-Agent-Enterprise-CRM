@@ -1,7 +1,8 @@
 'use client';
 
-import { Bell, Search, User, Moon, Sun } from 'lucide-react';
+import { Bell, User, Moon, Sun } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { CommandBar } from '@/components/CommandBar';
 
 export function Header() {
   const [darkMode, setDarkMode] = useState(false);
@@ -19,14 +20,7 @@ export function Header() {
     <header className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-6">
       {/* Search */}
       <div className="flex-1 max-w-lg">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-          <input
-            type="text"
-            placeholder="Search leads, deals, tickets..."
-            className="input pl-10 w-full"
-          />
-        </div>
+        <CommandBar />
       </div>
 
       {/* Actions */}

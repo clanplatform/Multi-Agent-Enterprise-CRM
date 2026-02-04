@@ -3,7 +3,9 @@ import request from 'supertest';
 import app from '../index';
 import { prisma, withTenantDb } from '../services/prisma';
 
-describe('Authentication API', () => {
+const describeDb = process.env.CRM_DB_AVAILABLE === '1' ? describe : describe.skip;
+
+describeDb('Authentication API', () => {
   let accessToken: string;
   let refreshToken: string;
   let tenantId: string | undefined;
@@ -133,7 +135,7 @@ describe('Authentication API', () => {
   });
 });
 
-describe('Leads API', () => {
+describeDb('Leads API', () => {
   let accessToken: string;
   let leadId: string;
 
@@ -254,7 +256,7 @@ describe('Leads API', () => {
   });
 });
 
-describe('Health Checks', () => {
+describeDb('Health Checks', () => {
   describe('GET /health', () => {
     it('should return healthy status', async () => {
       const response = await request(app)

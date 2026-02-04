@@ -1,7 +1,8 @@
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { TelemetryProvider } from '@/components/TelemetryProvider';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -16,9 +17,27 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   );
 
+  // Capture unhandled errors and promise rejections to keep UI stable
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      console.error('Unhandled error', event.error || event.message);
+    };
+    const onRejection = (event: PromiseRejectionEvent) => {
+      console.error('Unhandled rejection', event.reason);
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
+    };
+  }, []);
+
   return (
-    <QueryClientProvider client={queryClient}>
-      {children}
-    </QueryClientProvider>
+    <TelemetryProvider>
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>
+    </TelemetryProvider>
   );
 }

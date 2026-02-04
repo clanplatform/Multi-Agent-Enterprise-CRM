@@ -1,6 +1,8 @@
 import sys
 import os
+import socket
 from pathlib import Path
+from urllib.parse import urlparse
 import asyncpg
 import pytest
 import pytest_asyncio
@@ -11,10 +13,67 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 REPO_ROOT = ROOT.parent
-CORE_SRC = REPO_ROOT / "core_services" / "src"
-if str(CORE_SRC) not in sys.path:
-    insert_at = 1 if sys.path and sys.path[0] == str(SRC) else 0
-    sys.path.insert(insert_at, str(CORE_SRC))
+# Note: core_services/src path is NOT added here because it contains a conflicting
+# governance package. Tests that need core_services imports should add the path themselves.
+
+
+DB_REQUIRED_BASENAMES = {
+    "test_diff_correctness.py",
+    "test_event_store.py",
+    "test_idempotent_consumer.py",
+    "test_intelligence_search.py",
+    "test_replay_service_integration.py",
+    "test_replay_tenant_isolation.py",
+    "test_snapshot_store.py",
+    "test_tenant_isolation.py",
+}
+
+
+def _parse_host_port(database_url: str) -> tuple[str, int]:
+    parsed = urlparse(database_url)
+    host = parsed.hostname or "localhost"
+    port = int(parsed.port or 5432)
+    return host, port
+
+
+def _tcp_reachable(host: str, port: int, timeout_s: float = 0.25) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout_s):
+            return True
+    except OSError:
+        return False
+
+
+def _db_reachable_for_tests() -> bool:
+    if os.environ.get("CRM_TEST_REQUIRE_DB") == "1":
+        return True
+
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        url = "postgresql://crm_user:crm_password@localhost:5432/enterprise_crm"
+    host, port = _parse_host_port(url)
+    return _tcp_reachable(host, port)
+
+
+def pytest_configure(config: pytest.Config):
+    config._crm_db_reachable = _db_reachable_for_tests()  # type: ignore[attr-defined]
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]):
+    if getattr(config, "_crm_db_reachable", True):
+        return
+
+    skip_db = pytest.mark.skip(
+        reason="Postgres not reachable for DB-backed tests. Start docker-compose Postgres or set CRM_TEST_REQUIRE_DB=1."
+    )
+    for item in items:
+        path = str(item.fspath)
+        base = os.path.basename(path)
+        if base in DB_REQUIRED_BASENAMES:
+            item.add_marker(skip_db)
+            continue
+        if f"{os.sep}tests{os.sep}chaos{os.sep}" in path or f"{os.sep}tests{os.sep}integration{os.sep}" in path:
+            item.add_marker(skip_db)
 
 
 @pytest.fixture(scope="session")

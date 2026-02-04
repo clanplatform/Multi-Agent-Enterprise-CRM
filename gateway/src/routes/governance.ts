@@ -1,9 +1,12 @@
 import { Router, Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
+import { v4 as uuidv4 } from 'uuid';
 import { withTenantDb } from '../services/prisma';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { badRequest, notFound } from '../middleware/errorHandler';
 import { redisClient } from '../services/redis';
+import { publishEvent, TOPICS } from '../services/kafka';
+import { auditQueriesTotal, killSwitchUsageTotal } from '../services/metrics';
 
 const router = Router();
 
@@ -14,6 +17,11 @@ router.get(
   query('limit').optional().isInt({ min: 1, max: 200 }),
   async (req: AuthenticatedRequest, res: Response, next) => {
     try {
+      const roles = req.user?.roles || [];
+      if (!roles.includes('admin') && !roles.includes('super_admin') && !roles.includes('auditor')) {
+        throw badRequest('Insufficient privileges');
+      }
+
       const errors = validationResult(req);
       if (!errors.isEmpty()) throw badRequest('Validation failed', errors.array());
 
@@ -36,6 +44,24 @@ router.get(
         ]);
       });
 
+      const correlationId = (req.headers['x-correlation-id'] as string) || uuidv4();
+      await publishEvent(TOPICS.AUDIT_ACCESSED, {
+        type: 'crm.audit.accessed',
+        source: '/services/gateway',
+        id: uuidv4(),
+        tenantid: req.tenantId!,
+        correlationid: correlationId,
+        data: {
+          actor_type: 'user',
+          actor_id: req.user?.sub,
+          access_type: 'decisions_list',
+          agent_id: req.query.agentId ? String(req.query.agentId) : null,
+          page,
+          limit,
+        },
+      });
+      auditQueriesTotal.labels('decisions_list').inc();
+
       res.json({
         data: items,
         pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -48,10 +74,32 @@ router.get(
 
 router.get('/decisions/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   try {
+    const roles = req.user?.roles || [];
+    if (!roles.includes('admin') && !roles.includes('super_admin') && !roles.includes('auditor')) {
+      throw badRequest('Insufficient privileges');
+    }
+
     const decision = await withTenantDb(req.tenantId!, async (db) => {
       return db.agentDecision.findFirst({ where: { id: req.params.id, tenantId: req.tenantId } });
     });
     if (!decision) throw notFound('Decision not found');
+
+    const correlationId = (req.headers['x-correlation-id'] as string) || uuidv4();
+    await publishEvent(TOPICS.AUDIT_ACCESSED, {
+      type: 'crm.audit.accessed',
+      source: '/services/gateway',
+      id: uuidv4(),
+      tenantid: req.tenantId!,
+      correlationid: correlationId,
+      data: {
+        actor_type: 'user',
+        actor_id: req.user?.sub,
+        access_type: 'decision_view',
+        decision_id: req.params.id,
+      },
+    });
+    auditQueriesTotal.labels('decision_view').inc();
+
     res.json(decision);
   } catch (error) {
     next(error);
@@ -114,6 +162,11 @@ router.post(
       const errors = validationResult(req);
       if (!errors.isEmpty()) throw badRequest('Validation failed', errors.array());
 
+      const roles = req.user?.roles || [];
+      if (!roles.includes('admin') && !roles.includes('super_admin')) {
+        throw badRequest('Insufficient privileges');
+      }
+
       const requestedTenant = req.body.tenantId;
       const tenantId = req.user?.roles?.includes('super_admin') && requestedTenant ? requestedTenant : req.tenantId;
       if (!tenantId) throw badRequest('Missing tenantId');
@@ -123,6 +176,16 @@ router.post(
 
       await redisClient.set(key, JSON.stringify(payload));
       await redisClient.publish('governance:killswitch:events', JSON.stringify({ key, ...payload }));
+
+      await publishEvent(TOPICS.KILLSWITCH_ACTIVATED, {
+        type: 'crm.killswitch.activated',
+        source: '/services/gateway',
+        id: uuidv4(),
+        tenantid: tenantId,
+        correlationid: (req.headers['x-correlation-id'] as string) || uuidv4(),
+        data: { scope: 'tenant', state: 'paused', actor_id: req.user?.sub, reason: payload.reason },
+      });
+      killSwitchUsageTotal.labels('tenant', 'paused').inc();
 
       res.json({ ok: true, key, ...payload });
     } catch (error) {
@@ -140,6 +203,11 @@ router.post(
       const errors = validationResult(req);
       if (!errors.isEmpty()) throw badRequest('Validation failed', errors.array());
 
+      const roles = req.user?.roles || [];
+      if (!roles.includes('admin') && !roles.includes('super_admin')) {
+        throw badRequest('Insufficient privileges');
+      }
+
       const requestedTenant = req.body.tenantId;
       const tenantId = req.user?.roles?.includes('super_admin') && requestedTenant ? requestedTenant : req.tenantId;
       if (!tenantId) throw badRequest('Missing tenantId');
@@ -149,6 +217,16 @@ router.post(
 
       await redisClient.set(key, JSON.stringify(payload));
       await redisClient.publish('governance:killswitch:events', JSON.stringify({ key, ...payload }));
+
+      await publishEvent(TOPICS.KILLSWITCH_ACTIVATED, {
+        type: 'crm.killswitch.activated',
+        source: '/services/gateway',
+        id: uuidv4(),
+        tenantid: tenantId,
+        correlationid: (req.headers['x-correlation-id'] as string) || uuidv4(),
+        data: { scope: 'tenant', state: 'running', actor_id: req.user?.sub, reason: payload.reason },
+      });
+      killSwitchUsageTotal.labels('tenant', 'running').inc();
 
       res.json({ ok: true, key, ...payload });
     } catch (error) {
@@ -176,6 +254,16 @@ router.post(
 
       await redisClient.set(key, JSON.stringify(payload));
       await redisClient.publish('governance:killswitch:events', JSON.stringify({ key, ...payload }));
+
+      await publishEvent(TOPICS.KILLSWITCH_ACTIVATED, {
+        type: 'crm.killswitch.activated',
+        source: '/services/gateway',
+        id: uuidv4(),
+        tenantid: req.tenantId!,
+        correlationid: (req.headers['x-correlation-id'] as string) || uuidv4(),
+        data: { scope: agentId ? 'agent' : 'global', state: 'killed', actor_id: req.user?.sub, agent_id: agentId, reason: payload.reason },
+      });
+      killSwitchUsageTotal.labels(agentId ? 'agent' : 'global', 'killed').inc();
 
       res.json({ ok: true, key, ...payload });
     } catch (error) {

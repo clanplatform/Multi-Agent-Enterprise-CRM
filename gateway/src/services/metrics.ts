@@ -44,6 +44,55 @@ export const kafkaMessagesConsumed = new Counter({
   registers: [register],
 });
 
+export const auditQueriesTotal = new Counter({
+  name: 'audit_queries_total',
+  help: 'Total number of audit queries',
+  labelNames: ['type'],
+  registers: [register],
+});
+
+export const killSwitchUsageTotal = new Counter({
+  name: 'kill_switch_usage_total',
+  help: 'Total kill switch operations',
+  labelNames: ['scope', 'state'],
+  registers: [register],
+});
+
+export const knowledgeDraftDecisionsTotal = new Counter({
+  name: 'knowledge_draft_decisions_total',
+  help: 'Knowledge draft decisions',
+  labelNames: ['decision'],
+  registers: [register],
+});
+
+export const knowledgeArticleReadsTotal = new Counter({
+  name: 'knowledge_article_reads_total',
+  help: 'Knowledge article reads',
+  labelNames: ['type'],
+  registers: [register],
+});
+
+export const knowledgeDraftsCreatedTotal = new Counter({
+  name: 'knowledge_drafts_created_total',
+  help: 'Knowledge drafts created',
+  labelNames: ['tenant', 'source_type', 'topic'],
+  registers: [register],
+});
+
+export const knowledgeArticleReuseTotal = new Counter({
+  name: 'knowledge_article_reuse_total',
+  help: 'Knowledge article reuse events',
+  labelNames: ['tenant'],
+  registers: [register],
+});
+
+export const knowledgeApprovalRate = new Gauge({
+  name: 'knowledge_approval_rate_ratio',
+  help: 'Ratio of approved drafts to total drafts',
+  labelNames: ['tenant'],
+  registers: [register],
+});
+
 export const opaDecisions = new Counter({
   name: 'opa_decisions_total',
   help: 'Total number of OPA policy decisions',
@@ -62,6 +111,78 @@ export const approvalsPending = new Gauge({
   name: 'approvals_pending',
   help: 'Number of pending approvals',
   labelNames: ['tenant', 'type'],
+  registers: [register],
+});
+
+export const automationsActive = new Gauge({
+  name: 'automations_active',
+  help: 'Number of active automation policies',
+  labelNames: ['tenant'],
+  registers: [register],
+});
+
+export const automationExecutionsTotal = new Counter({
+  name: 'automation_executions_total',
+  help: 'Total automation executions',
+  labelNames: ['trigger_type'],
+  registers: [register],
+});
+
+export const automationSimulationTriggerCount = new Counter({
+  name: 'automation_simulation_trigger_count_total',
+  help: 'Total triggers observed in simulations',
+  labelNames: ['trigger_type'],
+  registers: [register],
+});
+
+export const productivityProposalsGenerated = new Counter({
+  name: 'proposals_generated_total',
+  help: 'Total number of productivity proposals generated',
+  labelNames: ['action_type', 'priority'],
+  registers: [register],
+});
+
+export const productivityApprovalsTotal = new Counter({
+  name: 'approvals_rate_total',
+  help: 'Total number of productivity proposal decisions',
+  labelNames: ['decision'],
+  registers: [register],
+});
+
+export const productivityRejectionTotal = new Counter({
+  name: 'rejection_rate_total',
+  help: 'Total number of rejected productivity proposals',
+  labelNames: ['decision'],
+  registers: [register],
+});
+
+export const productivityResolutionTimeMs = new Histogram({
+  name: 'avg_idle_resolution_time_ms',
+  help: 'Time from proposal creation to decision in milliseconds',
+  labelNames: ['decision'],
+  buckets: [1000, 5000, 15000, 30000, 60000, 300000, 900000, 3600000, 21600000, 86400000],
+  registers: [register],
+});
+
+export const predictionLatencyMs = new Histogram({
+  name: 'prediction_latency_ms',
+  help: 'Latency from prediction creation time to ingestion in milliseconds',
+  labelNames: ['prediction_type', 'entity_type', 'risk_level'],
+  buckets: [10, 50, 100, 250, 500, 1000, 5000, 15000, 60000, 300000],
+  registers: [register],
+});
+
+export const badgeDistributionTotal = new Counter({
+  name: 'badge_distribution_total',
+  help: 'Count of predictions by risk badge level',
+  labelNames: ['entity_type', 'prediction_type', 'risk_level'],
+  registers: [register],
+});
+
+export const stageTransitionRateTotal = new Counter({
+  name: 'stage_transition_rate_total',
+  help: 'Count of customer stage transitions',
+  labelNames: ['from_stage', 'to_stage'],
   registers: [register],
 });
 

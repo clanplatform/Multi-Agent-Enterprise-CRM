@@ -35,7 +35,7 @@ export const withTenantDb = async <T>(
   }
 
   return prisma.$transaction(async (db: Prisma.TransactionClient) => {
-    await db.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    await db.$executeRaw`SET LOCAL app.tenant_id = ${tenantId}`;
     return fn(db);
   });
 };

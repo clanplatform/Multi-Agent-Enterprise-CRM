@@ -3,6 +3,7 @@ import '../styles/globals.css';
 import { Providers } from './providers';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
+import { ChatPanel } from '@/components/ChatPanel';
 
 export const metadata: Metadata = {
   title: 'Enterprise CRM',
@@ -16,7 +17,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="font-sans">
+      <body className="font-sans" suppressHydrationWarning>
         <Providers>
           <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
             <Sidebar />
@@ -27,6 +28,7 @@ export default function RootLayout({
               </main>
             </div>
           </div>
+          <ChatPanel />
         </Providers>
       </body>
     </html>

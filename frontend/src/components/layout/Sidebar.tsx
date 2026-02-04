@@ -8,9 +8,12 @@ import {
   Briefcase, 
   Ticket, 
   Bot,
+  BookOpen,
   Shield,
+  Zap,
   Settings,
   History,
+  Inbox,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -23,9 +26,12 @@ const navigation = [
   { name: 'Deals', href: '/deals', icon: Briefcase },
   { name: 'Tickets', href: '/tickets', icon: Ticket },
   { name: 'Customers', href: '/customers', icon: Users },
+  { name: 'Knowledge', href: '/knowledge', icon: BookOpen },
+  { name: 'Action Inbox', href: '/productivity', icon: Inbox },
   { name: 'AI Agents', href: '/agents', icon: Bot },
   { name: 'Replay', href: '/replay', icon: History },
   { name: 'Approvals', href: '/approvals', icon: Shield },
+  { name: 'Automations', href: '/automations', icon: Zap },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 

@@ -5,6 +5,9 @@ Main entry point for the AI agent layer.
 Consumes events from Kafka and routes them to appropriate agents.
 """
 
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file before any other imports
+
 import asyncio
 import json
 import signal
@@ -18,6 +21,16 @@ from aiohttp import web
 from .router import AgentRouter
 from .config import settings
 from governance.agent_telemetry import agents_running, metrics_response
+from governance.agent_telemetry import audit_queries_total
+
+from intelligence.search.search_agent import SearchAgent
+from intelligence.chat.chat_agent import ChatAgent
+from intelligence.chat.tool_executor import ChatToolExecutor
+from intelligence.chat.tools import CrmReader, CrmWriter, SearchAdapter, VectorSearch
+from intelligence.automation.automation_agent import AutomationAgent
+from intelligence.compliance.audit_indexer import AuditIndexer
+from intelligence.compliance.compliance_agent import ComplianceIntelligenceAgent, AuditSearchFilters
+from intelligence.i18n.graph import process_multilingual_input, process_multilingual_response
 
 # Configure structured logging
 structlog.configure(
@@ -188,13 +201,58 @@ async def health_handler(request):
 
 async def metrics_handler(request):
     resp = metrics_response()
-    return web.Response(body=resp.body, content_type=resp.content_type)
+    # aiohttp rejects charset inside content_type; set header directly
+    return web.Response(body=resp.body, headers={"Content-Type": resp.content_type})
 
 async def run_health_server():
     """Run the health check HTTP server."""
     app = web.Application()
+    app["search_agent"] = SearchAgent()
+    app["chat_agent"] = None
+    app["automation_agent"] = AutomationAgent()
+    app["audit_indexer"] = AuditIndexer()
+    app["compliance_intelligence_agent"] = ComplianceIntelligenceAgent()
     app.router.add_get("/health", health_handler)
     app.router.add_get("/metrics", metrics_handler)
+    app.router.add_post("/api/v1/intelligence/query", intelligence_query_handler)
+    app.router.add_post("/api/v1/intelligence/voice", voice_handler)
+    app.router.add_post("/api/v1/intelligence/voice/query", voice_query_handler)
+    app.router.add_post("/api/v1/automation/parse", automation_parse_handler)
+    app.router.add_post("/api/v1/audit/search", audit_search_handler)
+
+    async def _startup(app: web.Application) -> None:
+        agent: SearchAgent = app["search_agent"]
+        await agent.start()
+        search_agent: SearchAgent = app["search_agent"]
+        chat_agent = ChatAgent(
+            tool_executor=ChatToolExecutor(
+                crm_reader=CrmReader(gateway_url=settings.GATEWAY_URL),
+                crm_writer=CrmWriter(),
+                vector_search=VectorSearch(
+                    weaviate_url=settings.WEAVIATE_URL,
+                    ollama_url=settings.OLLAMA_URL,
+                    embedding_model=_env("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
+                ),
+                search_adapter=SearchAdapter(search_agent=search_agent),
+            )
+        )
+        await chat_agent.start()
+        app["chat_agent"] = chat_agent
+        indexer: AuditIndexer = app["audit_indexer"]
+        await indexer.start()
+
+    async def _cleanup(app: web.Application) -> None:
+        agent: SearchAgent = app["search_agent"]
+        await agent.close()
+        chat_agent: ChatAgent | None = app.get("chat_agent")
+        if chat_agent:
+            await chat_agent.close()
+        indexer: AuditIndexer | None = app.get("audit_indexer")
+        if indexer:
+            await indexer.stop()
+
+    app.on_startup.append(_startup)
+    app.on_cleanup.append(_cleanup)
     
     runner = web.AppRunner(app)
     await runner.setup()
@@ -204,6 +262,244 @@ async def run_health_server():
     
     logger.info("Health server started", port=settings.HEALTH_PORT)
     return runner
+
+
+async def intelligence_query_handler(request: web.Request) -> web.Response:
+    search_agent: SearchAgent = request.app["search_agent"]
+    chat_agent: ChatAgent | None = request.app.get("chat_agent")
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid_json"}, status=400)
+
+    query = str((body or {}).get("query") or "").strip()
+    if not query:
+        return web.json_response({"error": "missing_query"}, status=400)
+
+    tenant_id = request.headers.get("X-Tenant-Id")
+    user_id = request.headers.get("X-User-Id")
+    roles_raw = request.headers.get("X-User-Roles") or ""
+    roles = [r.strip() for r in roles_raw.split(",") if r.strip()]
+    module = request.headers.get("X-Client-Module") or (body or {}).get("module")
+    correlation_id = request.headers.get("X-Correlation-Id")
+    authorization = request.headers.get("Authorization")
+
+    if not tenant_id or not user_id:
+        return web.json_response({"error": "missing_context"}, status=400)
+
+    is_chat = bool(
+        (body or {}).get("conversation_id")
+        or (body or {}).get("conversationId")
+        or (body or {}).get("messages")
+        or (body or {}).get("mode") == "chat"
+    )
+    if is_chat and chat_agent:
+        conversation_id = (body or {}).get("conversation_id") or (body or {}).get("conversationId")
+        resp = await chat_agent.chat(
+            tenant_id=str(tenant_id),
+            user_id=str(user_id),
+            roles=roles,
+            authorization=authorization,
+            correlation_id=correlation_id,
+            conversation_id=str(conversation_id) if conversation_id else None,
+            query=query,
+        )
+        return web.json_response(resp)
+
+    resp = await search_agent.search(
+        tenant_id=str(tenant_id),
+        user_id=str(user_id),
+        roles=roles,
+        query=query,
+        module=str(module) if module else None,
+        correlation_id=correlation_id,
+    )
+    return web.json_response(resp)
+
+
+async def voice_handler(request: web.Request) -> web.Response:
+    """Handle voice transcription requests."""
+    try:
+        audio_bytes = await request.read()
+    except Exception:
+        return web.json_response({"error": "failed_to_read_audio"}, status=400)
+
+    if not audio_bytes:
+        return web.json_response({"error": "empty_audio"}, status=400)
+
+    tenant_id = request.headers.get("X-Tenant-Id") or ""
+    user_id = request.headers.get("X-User-Id") or ""
+    audio_format = request.headers.get("X-Audio-Format") or "webm"
+
+    if not tenant_id or not user_id:
+        return web.json_response({"error": "missing_context"}, status=400)
+
+    try:
+        # Process through i18n pipeline
+        state = await process_multilingual_input(
+            audio_bytes=audio_bytes,
+            audio_format=audio_format,
+            tenant_id=str(tenant_id),
+            user_id=str(user_id),
+        )
+
+        return web.json_response({
+            "transcript": {
+                "text": state.transcript.text if state.transcript else "",
+                "language": state.transcript.language if state.transcript else None,
+                "confidence": state.transcript.confidence if state.transcript else 0,
+                "duration_seconds": state.transcript.duration_seconds if state.transcript else 0,
+                "processing_time_ms": state.transcript.processing_time_ms if state.transcript else 0,
+            } if state.transcript else None,
+            "original_language": state.original_language,
+            "canonical_query": state.canonical_query,
+            "stt_latency_ms": state.stt_latency_ms,
+            "detection_latency_ms": state.detection_latency_ms,
+            "translation_latency_ms": state.translation_latency_ms,
+            "total_latency_ms": state.total_latency_ms,
+        })
+    except Exception as e:
+        logger.error("Voice transcription failed", error=str(e))
+        return web.json_response({"error": "transcription_failed", "details": str(e)}, status=500)
+
+
+async def voice_query_handler(request: web.Request) -> web.Response:
+    """Handle full voice query pipeline: transcribe, detect, translate, search/chat."""
+    search_agent: SearchAgent = request.app["search_agent"]
+    chat_agent: ChatAgent | None = request.app.get("chat_agent")
+
+    try:
+        audio_bytes = await request.read()
+    except Exception:
+        return web.json_response({"error": "failed_to_read_audio"}, status=400)
+
+    if not audio_bytes:
+        return web.json_response({"error": "empty_audio"}, status=400)
+
+    tenant_id = request.headers.get("X-Tenant-Id") or ""
+    user_id = request.headers.get("X-User-Id") or ""
+    roles_raw = request.headers.get("X-User-Roles") or ""
+    roles = [r.strip() for r in roles_raw.split(",") if r.strip()]
+    module = request.headers.get("X-Client-Module")
+    correlation_id = request.headers.get("X-Correlation-Id")
+    authorization = request.headers.get("Authorization")
+    audio_format = request.headers.get("X-Audio-Format") or "webm"
+
+    if not tenant_id or not user_id:
+        return web.json_response({"error": "missing_context"}, status=400)
+
+    try:
+        # Process through i18n pipeline
+        state = await process_multilingual_input(
+            audio_bytes=audio_bytes,
+            audio_format=audio_format,
+            tenant_id=str(tenant_id),
+            user_id=str(user_id),
+        )
+
+        if not state.canonical_query:
+            return web.json_response({
+                "error": "no_transcript",
+                "transcript": state.transcript.text if state.transcript else "",
+                "original_language": state.original_language,
+            }, status=400)
+
+        # Execute search with canonical query
+        resp = await search_agent.search(
+            tenant_id=str(tenant_id),
+            user_id=str(user_id),
+            roles=roles,
+            query=state.canonical_query,
+            module=str(module) if module else None,
+            correlation_id=correlation_id,
+        )
+
+        # Add voice metadata to response
+        resp["voice"] = {
+            "transcript": state.transcript.text if state.transcript else "",
+            "original_language": state.original_language,
+            "canonical_query": state.canonical_query,
+            "stt_latency_ms": state.stt_latency_ms,
+            "detection_latency_ms": state.detection_latency_ms,
+            "translation_latency_ms": state.translation_latency_ms,
+        }
+
+        return web.json_response(resp)
+
+    except Exception as e:
+        logger.error("Voice query failed", error=str(e))
+        return web.json_response({"error": "voice_query_failed", "details": str(e)}, status=500)
+
+
+async def automation_parse_handler(request: web.Request) -> web.Response:
+    automation_agent: AutomationAgent = request.app["automation_agent"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid_json"}, status=400)
+
+    nl_rule_text = str((body or {}).get("nl_rule_text") or (body or {}).get("nlRuleText") or "").strip()
+    if not nl_rule_text:
+        return web.json_response({"error": "missing_nl_rule_text"}, status=400)
+
+    tenant_id = request.headers.get("X-Tenant-Id")
+    user_id = request.headers.get("X-User-Id")
+    roles_raw = request.headers.get("X-User-Roles") or ""
+    roles = [r.strip() for r in roles_raw.split(",") if r.strip()]
+    if not tenant_id or not user_id:
+        return web.json_response({"error": "missing_context"}, status=400)
+    if "admin" not in roles and "super_admin" not in roles:
+        return web.json_response({"error": "forbidden"}, status=403)
+
+    try:
+        out = await automation_agent.parse(tenant_id=str(tenant_id), user_id=str(user_id), roles=roles, nl_rule_text=nl_rule_text)
+        return web.json_response(out)
+    except Exception as e:
+        logger.error("Automation parse failed", error=str(e))
+        return web.json_response({"error": "parse_failed"}, status=500)
+
+
+async def audit_search_handler(request: web.Request) -> web.Response:
+    agent: ComplianceIntelligenceAgent = request.app["compliance_intelligence_agent"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid_json"}, status=400)
+
+    query = str((body or {}).get("query") or "").strip()
+    if not query:
+        return web.json_response({"error": "missing_query"}, status=400)
+
+    tenant_id = request.headers.get("X-Tenant-Id")
+    user_id = request.headers.get("X-User-Id")
+    roles_raw = request.headers.get("X-User-Roles") or ""
+    roles = [r.strip() for r in roles_raw.split(",") if r.strip()]
+    if not tenant_id or not user_id:
+        return web.json_response({"error": "missing_context"}, status=400)
+    if "admin" not in roles and "super_admin" not in roles and "auditor" not in roles:
+        return web.json_response({"error": "forbidden"}, status=403)
+
+    filters = AuditSearchFilters(
+        from_ts=(body or {}).get("from_ts") or (body or {}).get("fromTs"),
+        to_ts=(body or {}).get("to_ts") or (body or {}).get("toTs"),
+        agent_name=(body or {}).get("agent_name") or (body or {}).get("agentName"),
+        action_type=(body or {}).get("action_type") or (body or {}).get("actionType"),
+        status=(body or {}).get("status"),
+        risk_level=(body or {}).get("risk_level") or (body or {}).get("riskLevel"),
+    )
+
+    try:
+        out = await agent.semantic_audit_search(tenant_id=str(tenant_id), query=query, filters=filters, top_k=20)
+        audit_queries_total.labels(type="semantic").inc()
+        return web.json_response(out)
+    except Exception as e:
+        logger.error("Audit search failed", error=str(e))
+        return web.json_response({"error": "search_failed"}, status=500)
+
+
+def _env(key: str, default: str) -> str:
+    val = os.getenv(key)
+    return val.strip() if val and val.strip() else default
 
 
 async def main():

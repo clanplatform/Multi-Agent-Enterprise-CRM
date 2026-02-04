@@ -1,3 +1,6 @@
+'use client';
+
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Users, 
   Briefcase, 
@@ -8,95 +11,101 @@ import {
   Bot,
   Clock
 } from 'lucide-react';
-
-const stats = [
-  {
-    name: 'Total Leads',
-    value: '2,847',
-    change: '+12.5%',
-    trend: 'up',
-    icon: Users,
-    color: 'bg-blue-500',
-  },
-  {
-    name: 'Active Deals',
-    value: '156',
-    change: '+8.2%',
-    trend: 'up',
-    icon: Briefcase,
-    color: 'bg-green-500',
-  },
-  {
-    name: 'Open Tickets',
-    value: '43',
-    change: '-5.4%',
-    trend: 'down',
-    icon: Ticket,
-    color: 'bg-yellow-500',
-  },
-  {
-    name: 'Revenue MTD',
-    value: '$124,500',
-    change: '+23.1%',
-    trend: 'up',
-    icon: TrendingUp,
-    color: 'bg-purple-500',
-  },
-];
-
-const recentActivity = [
-  {
-    id: 1,
-    type: 'lead',
-    action: 'Lead qualified by AI',
-    subject: 'John Smith - Acme Corp',
-    time: '2 minutes ago',
-    agent: 'Sales Agent',
-  },
-  {
-    id: 2,
-    type: 'deal',
-    action: 'Stage changed',
-    subject: 'Enterprise License Deal',
-    time: '15 minutes ago',
-    agent: null,
-  },
-  {
-    id: 3,
-    type: 'ticket',
-    action: 'Ticket triaged by AI',
-    subject: 'Integration Issue #1234',
-    time: '1 hour ago',
-    agent: 'Support Agent',
-  },
-  {
-    id: 4,
-    type: 'approval',
-    action: 'Approval required',
-    subject: 'High-value deal close',
-    time: '2 hours ago',
-    agent: 'Sales Agent',
-  },
-];
-
-const pendingApprovals = [
-  {
-    id: 1,
-    type: 'Deal Close',
-    amount: '$75,000',
-    requestedBy: 'Sales Agent',
-    urgency: 'high',
-  },
-  {
-    id: 2,
-    type: 'Lead Qualification',
-    amount: null,
-    requestedBy: 'Sales Agent',
-    urgency: 'medium',
-  },
-];
+import { leadsApi, dealsApi, ticketsApi, approvalsApi, auditApi } from '@/lib/api';
 
 export default function DashboardPage() {
+  const leadsQuery = useQuery({
+    queryKey: ['dashboard', 'leads-count'],
+    queryFn: () => leadsApi.list({ limit: 1 }),
+  });
+  const dealsQuery = useQuery({
+    queryKey: ['dashboard', 'deals-count'],
+    queryFn: () => dealsApi.list({ limit: 1 }),
+  });
+  const ticketsQuery = useQuery({
+    queryKey: ['dashboard', 'tickets-count'],
+    queryFn: () => ticketsApi.list({ limit: 1, status: 'open' }),
+  });
+  const approvalsQuery = useQuery({
+    queryKey: ['dashboard', 'approvals-pending'],
+    queryFn: () => approvalsApi.list({ status: 'pending' }),
+  });
+
+  const queryClient = useQueryClient();
+  const decideMutation = useMutation({
+    mutationFn: ({ id, decision }: { id: string; decision: 'approved' | 'rejected' }) =>
+      approvalsApi.decide(id, decision),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dashboard', 'approvals-pending'] }),
+  });
+
+  const activityQuery = useQuery({
+    queryKey: ['dashboard', 'recent-activity'],
+    queryFn: async () => {
+      const resp = await auditApi.search({ query: '*', limit: 5 });
+      return resp.data?.results || resp.data?.data || [];
+    },
+  });
+
+  const stats = [
+    {
+      name: 'Total Leads',
+      value: leadsQuery.data?.data?.pagination?.total ?? 0,
+      change: '+0.0%',
+      trend: 'up',
+      icon: Users,
+      color: 'bg-blue-500',
+      loading: leadsQuery.isLoading,
+      error: leadsQuery.isError,
+    },
+    {
+      name: 'Active Deals',
+      value: dealsQuery.data?.data?.pagination?.total ?? 0,
+      change: '+0.0%',
+      trend: 'up',
+      icon: Briefcase,
+      color: 'bg-green-500',
+      loading: dealsQuery.isLoading,
+      error: dealsQuery.isError,
+    },
+    {
+      name: 'Open Tickets',
+      value: ticketsQuery.data?.data?.pagination?.total ?? 0,
+      change: '-0.0%',
+      trend: 'down',
+      icon: Ticket,
+      color: 'bg-yellow-500',
+      loading: ticketsQuery.isLoading,
+      error: ticketsQuery.isError,
+    },
+    {
+      name: 'Pending Approvals',
+      value: approvalsQuery.data?.data?.pagination?.total ?? approvalsQuery.data?.data?.data?.length ?? 0,
+      change: '+0.0%',
+      trend: 'up',
+      icon: TrendingUp,
+      color: 'bg-purple-500',
+      loading: approvalsQuery.isLoading,
+      error: approvalsQuery.isError,
+    },
+  ];
+
+  const recentActivity: {
+    id: number | string;
+    type: string;
+    action: string;
+    subject: string;
+    time: string;
+    agent: string | null;
+  }[] = activityQuery.data || [];
+
+  const pendingApprovals: {
+    id: number | string;
+    type: string;
+    amount: string | null;
+    requestedBy: string;
+    urgency: string;
+  }[] = approvalsQuery.data?.data?.data || [];
+
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -121,7 +130,7 @@ export default function DashboardPage() {
                     {stat.name}
                   </p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-                    {stat.value}
+                    {stat.loading ? '...' : stat.error ? '—' : stat.value}
                   </p>
                 </div>
                 <div className={`p-3 rounded-lg ${stat.color}`}>
@@ -142,7 +151,7 @@ export default function DashboardPage() {
                   {stat.change}
                 </span>
                 <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
-                  vs last month
+                  vs last period
                 </span>
               </div>
             </div>
@@ -203,7 +212,7 @@ export default function DashboardPage() {
             Pending Approvals
           </h2>
           <div className="space-y-3">
-            {pendingApprovals.map((approval) => (
+            {pendingApprovals.map((approval: any) => (
               <div
                 key={approval.id}
                 className="p-3 rounded-lg border border-gray-200 dark:border-gray-700"
@@ -230,17 +239,27 @@ export default function DashboardPage() {
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                   Requested by {approval.requestedBy}
                 </p>
-                <div className="flex gap-2 mt-3">
-                  <button className="btn btn-primary flex-1 text-xs py-1">
-                    Approve
-                  </button>
-                  <button className="btn btn-secondary flex-1 text-xs py-1">
-                    Reject
-                  </button>
-                </div>
+                {approval.status === 'pending' && (
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      className="btn btn-primary flex-1 text-xs py-1"
+                      disabled={decideMutation.isPending}
+                      onClick={() => decideMutation.mutate({ id: approval.id, decision: 'approved' })}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="btn btn-secondary flex-1 text-xs py-1"
+                      disabled={decideMutation.isPending}
+                      onClick={() => decideMutation.mutate({ id: approval.id, decision: 'rejected' })}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
-          </div>
+         </div>
           <button className="btn btn-ghost w-full mt-4 text-sm">
             View All Approvals
           </button>

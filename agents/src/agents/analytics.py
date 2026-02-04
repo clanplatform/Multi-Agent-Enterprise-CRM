@@ -10,7 +10,7 @@ Responsible for:
 
 import json
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 
@@ -62,7 +62,7 @@ class AnalyticsAgent(BaseAgent):
                 "entityId": data.get("leadId"),
                 "previousStatus": data.get("previousStatus"),
                 "newStatus": data.get("newStatus"),
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "recordedBy": self.agent_id,
             },
         )
@@ -109,7 +109,7 @@ class AnalyticsAgent(BaseAgent):
                 "newStage": new_stage,
                 "amount": data.get("amount"),
                 "anomaly": anomaly,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "recordedBy": self.agent_id,
             },
         )
@@ -151,7 +151,7 @@ class AnalyticsAgent(BaseAgent):
                 "entityType": "ticket",
                 "entityId": data.get("ticketId"),
                 "changes": data.get("changes", {}),
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "recordedBy": self.agent_id,
             },
         )

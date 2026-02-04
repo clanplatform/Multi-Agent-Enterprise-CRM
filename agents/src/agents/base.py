@@ -7,7 +7,7 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 import httpx
@@ -140,7 +140,7 @@ class BaseAgent(ABC):
             "type": event_type,
             "source": f"/agents/{self.agent_id}",
             "id": str(uuid.uuid4()),
-            "time": datetime.utcnow().isoformat() + "Z",
+            "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "datacontenttype": "application/json",
             "tenantid": tenant_id,
             "correlationid": correlation_id or str(uuid.uuid4()),
@@ -199,7 +199,7 @@ class BaseAgent(ABC):
                 "reasoning": reasoning,
                 "confidence": confidence,
                 "factors": factors,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             },
         )
         

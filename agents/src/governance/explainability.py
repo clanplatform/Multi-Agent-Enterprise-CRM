@@ -1,10 +1,13 @@
 import json
 import uuid
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 import asyncpg
+
+from governance.agent_telemetry import decisions_logged_total, explanation_latency_ms
 
 
 @dataclass(frozen=True)
@@ -78,31 +81,39 @@ class ExplainabilityEngine:
                     uuid.UUID(decision.correlation_id) if decision.correlation_id else None,
                     datetime.now(tz=timezone.utc).replace(tzinfo=None),
                 )
+        decisions_logged_total.labels(agent_id=decision.agent_id, action_type=decision.action_type, status=decision.status).inc()
         return decision.id
 
     async def explain_decision(self, decision_id: str, *, tenant_id: str) -> Optional[dict[str, Any]]:
+        started = time.perf_counter()
         if not self._pool:
             await self.start()
         assert self._pool
 
-        async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute("SELECT set_config('app.tenant_id', $1, true)", tenant_id)
-                row = await conn.fetchrow(
-                    """
-                    SELECT
-                      id::text, tenant_id::text, agent_id, action_type, risk_level, status,
-                      confidence, input_context, reasoning, evidence, tool_calls,
-                      approval_id::text, correlation_id::text, created_at
-                    FROM agent_decisions
-                    WHERE tenant_id = $1::uuid AND id = $2::uuid
-                    """,
-                    uuid.UUID(tenant_id),
-                    uuid.UUID(decision_id),
-                )
-                if not row:
-                    return None
-                return dict(row)
+        try:
+            async with self._pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute("SELECT set_config('app.tenant_id', $1, true)", tenant_id)
+                    row = await conn.fetchrow(
+                        """
+                        SELECT
+                          id::text, tenant_id::text, agent_id, action_type, risk_level, status,
+                          confidence, input_context, reasoning, evidence, tool_calls,
+                          approval_id::text, correlation_id::text, created_at
+                        FROM agent_decisions
+                        WHERE tenant_id = $1::uuid AND id = $2::uuid
+                        """,
+                        uuid.UUID(tenant_id),
+                        uuid.UUID(decision_id),
+                    )
+                    if not row:
+                        explanation_latency_ms.labels(status="not_found").observe((time.perf_counter() - started) * 1000.0)
+                        return None
+                    explanation_latency_ms.labels(status="ok").observe((time.perf_counter() - started) * 1000.0)
+                    return dict(row)
+        except Exception:
+            explanation_latency_ms.labels(status="error").observe((time.perf_counter() - started) * 1000.0)
+            raise
 
     async def get_factors(self, decision_id: str, *, tenant_id: str) -> list[dict[str, Any]]:
         decision = await self.explain_decision(decision_id, tenant_id=tenant_id)

@@ -29,13 +29,13 @@ services:
       - "${GATEWAY_PORT:-4000}:4000"
     environment:
       - NODE_ENV=${NODE_ENV:-development}
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
+      - DATABASE_URL=postgresql://crm_user:crm_password@postgres:5432/enterprise_crm
+      - REDIS_URL=redis://redis:6379
       - KAFKA_BROKERS=kafka:9092
-      - OPA_URL=${OPA_URL}
-      - JWT_SECRET=${JWT_SECRET}
-      - KEYCLOAK_URL=${KEYCLOAK_URL}
-      - REPLAY_SERVICE_URL=${REPLAY_SERVICE_URL:-http://replay-service:5011}
+      - OPA_URL=http://opa:8181
+      - JWT_SECRET=supersecret
+      - KEYCLOAK_URL=http://keycloak:8080
+      - REPLAY_SERVICE_URL=http://replay-service:5011
     depends_on:
       - postgres
       - redis
@@ -47,73 +47,73 @@ services:
   # ===================
   # Core Services
   # ===================
-  leads-service:
-    build:
-      context: ./services/leads
-      dockerfile: Dockerfile
-    ports:
-      - "${LEADS_SERVICE_PORT:-5001}:5001"
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - KAFKA_BROKERS=kafka:9092
-      - OPA_URL=${OPA_URL}
-    depends_on:
-      - postgres
-      - kafka
-    networks:
-      - crm-network
+  # leads-service:
+  #   build:
+  #     context: ./services/leads
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "${LEADS_SERVICE_PORT:-5001}:5001"
+  #   environment:
+  #     - DATABASE_URL=${DATABASE_URL}
+  #     - REDIS_URL=${REDIS_URL}
+  #     - KAFKA_BROKERS=kafka:9092
+  #     - OPA_URL=${OPA_URL}
+  #   depends_on:
+  #     - postgres
+  #     - kafka
+  #   networks:
+  #     - crm-network
 
-  deals-service:
-    build:
-      context: ./services/deals
-      dockerfile: Dockerfile
-    ports:
-      - "${DEALS_SERVICE_PORT:-5002}:5002"
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - KAFKA_BROKERS=kafka:9092
-      - OPA_URL=${OPA_URL}
-    depends_on:
-      - postgres
-      - kafka
-    networks:
-      - crm-network
+  # deals-service:
+  #   build:
+  #     context: ./services/deals
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "${DEALS_SERVICE_PORT:-5002}:5002"
+  #   environment:
+  #     - DATABASE_URL=${DATABASE_URL}
+  #     - REDIS_URL=${REDIS_URL}
+  #     - KAFKA_BROKERS=kafka:9092
+  #     - OPA_URL=${OPA_URL}
+  #   depends_on:
+  #     - postgres
+  #     -kafka
+  #   networks:
+  #     - crm-network
 
-  tickets-service:
-    build:
-      context: ./services/tickets
-      dockerfile: Dockerfile
-    ports:
-      - "${TICKETS_SERVICE_PORT:-5003}:5003"
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - KAFKA_BROKERS=kafka:9092
-      - OPA_URL=${OPA_URL}
-    depends_on:
-      - postgres
-      - kafka
-    networks:
-      - crm-network
+  # tickets-service:
+  #   build:
+  #     context: ./services/tickets
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "${TICKETS_SERVICE_PORT:-5003}:5003"
+  #   environment:
+  #     - DATABASE_URL=${DATABASE_URL}
+  #     - REDIS_URL=${REDIS_URL}
+  #     - KAFKA_BROKERS=kafka:9092
+  #     - OPA_URL=${OPA_URL}
+  #   depends_on:
+  #     - postgres
+  #     -kafka
+  #   networks:
+  #     - crm-network
 
-  customers-service:
-    build:
-      context: ./services/customers
-      dockerfile: Dockerfile
-    ports:
-      - "${CUSTOMERS_SERVICE_PORT:-5004}:5004"
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - KAFKA_BROKERS=kafka:9092
-      - OPA_URL=${OPA_URL}
-    depends_on:
-      - postgres
-      - kafka
-    networks:
-      - crm-network
+  # customers-service:
+  #   build:
+  #     context: ./services/customers
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "${CUSTOMERS_SERVICE_PORT:-5004}:5004"
+  #   environment:
+  #     - DATABASE_URL=${DATABASE_URL}
+  #     - REDIS_URL=${REDIS_URL}
+  #     - KAFKA_BROKERS=kafka:9092
+  #     - OPA_URL=${OPA_URL}
+  #   depends_on:
+  #     - postgres
+  #     -kafka
+  #   networks:
+  #     - crm-network
 
   # ===================
   # AI Agents
@@ -122,42 +122,48 @@ services:
     build:
       context: ./agents
       dockerfile: Dockerfile
+    command: ["/bin/sh", "-c", "sleep 30; python -m src.orchestrator.main"]
     ports:
       - "${AGENTS_PORT:-5010}:5010"
     environment:
       - KAFKA_BROKERS=kafka:9092
+      - REDIS_URL=redis://redis:6379
       - OLLAMA_URL=${OLLAMA_URL}
-      - WEAVIATE_URL=${WEAVIATE_URL}
-      - OPA_URL=${OPA_URL}
+      - WEAVIATE_URL=http://weaviate:8080
+      - OPA_URL=http://opa:8181
+      - DATABASE_URL=postgresql://crm_user:crm_password@postgres:5432/enterprise_crm
     depends_on:
       - kafka
-      - ollama
       - weaviate
+      - opa
+      - postgres
+      - redis
     networks:
       - crm-network
 
-  replay-service:
-    build:
-      context: ./agents
-      dockerfile: Dockerfile
-    command: ["uvicorn", "replay.api:app", "--host", "0.0.0.0", "--port", "5011"]
-    ports:
-      - "${REPLAY_SERVICE_PORT:-5011}:5011"
-    environment:
-      - DATABASE_URL=${REPLAY_DATABASE_URL:-postgresql://crm_app:crm_password@postgres:5432/enterprise_crm}
-      - KAFKA_BROKERS=kafka:9092
-      - ENABLE_REPLAY_INGESTOR=${ENABLE_REPLAY_INGESTOR:-true}
-      - REPLAY_INGESTOR_GROUP=${REPLAY_INGESTOR_GROUP:-replay-event-ingestor}
-    depends_on:
-      - postgres
-      - kafka
-    networks:
-      - crm-network
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import httpx; httpx.get('http://localhost:5011/health')\""]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  # replay-service:
+  #   build:
+  #     context: ./agents
+  #     dockerfile: Dockerfile
+  #   command: ["uvicorn", "replay.api:app", "--host", "0.0.0.0", "--port", "5011"]
+  #   ports:
+  #     - "${REPLAY_SERVICE_PORT:-5011}:5011"
+  #   environment:
+  #     - DATABASE_URL=${REPLAY_DATABASE_URL:-postgresql://crm_app:crm_password@postgres:5432/enterprise_crm}
+  #     - KAFKA_BROKERS=kafka:9092
+  #     - ENABLE_REPLAY_INGESTOR=${ENABLE_REPLAY_INGESTOR:-true}
+  #     - REPLAY_INGESTOR_GROUP=${REPLAY_INGESTOR_GROUP:-replay-event-ingestor}
+  #   depends_on:
+  #     - postgres
+  #     -kafka
+  #   networks:
+  #     - crm-network
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "python -c \"import httpx; httpx.get('http://localhost:5011/health')\""]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
 
   # ===================
   # Infrastructure
@@ -275,7 +281,7 @@ services:
   # Policy Engine
   # ===================
   opa:
-    image: openpolicyagent/opa:0.55.0
+    image: openpolicyagent/opa:latest
     ports:
       - "8181:8181"
     command:

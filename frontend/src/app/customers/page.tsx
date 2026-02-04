@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { 
   Plus, 
   Search, 
@@ -14,9 +15,11 @@ import {
   Trash2,
   ExternalLink
 } from 'lucide-react';
-import { customersApi, Customer } from '@/lib/api';
+import { customersApi, Customer, predictionsApi } from '@/lib/api';
 import { clsx } from 'clsx';
 import { format } from 'date-fns';
+import { RiskBadges } from '@/components/RiskBadges';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 const segmentColors: Record<string, string> = {
   enterprise: 'badge-success',
@@ -30,6 +33,7 @@ export default function CustomersPage() {
   const [page, setPage] = useState(1);
   const [segmentFilter, setSegmentFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
 
   // Fetch customers
   const { data, isLoading, error } = useQuery({
@@ -42,6 +46,7 @@ export default function CustomersPage() {
     mutationFn: (id: string) => customersApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setCustomerToDelete(null);
     },
   });
 
@@ -57,6 +62,14 @@ export default function CustomersPage() {
           customer.company?.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : customers;
+
+  const predictionsQuery = useQuery({
+    queryKey: ['predictionsLatest', 'customer', filteredCustomers.map((c) => c.id).join(',')],
+    queryFn: () => predictionsApi.latest('customer', filteredCustomers.map((c) => c.id)),
+    enabled: filteredCustomers.length > 0,
+  });
+
+  const predictionsByCustomerId = predictionsQuery.data?.data?.data || {};
 
   // Stats
   const totalLTV = customers.reduce((sum, c) => sum + c.lifetimeValue, 0);
@@ -123,7 +136,8 @@ export default function CustomersPage() {
             <CustomerCard
               key={customer.id}
               customer={customer}
-              onDelete={() => deleteMutation.mutate(customer.id)}
+              predictions={predictionsByCustomerId[customer.id] || null}
+              onDelete={() => setCustomerToDelete(customer)}
             />
           ))}
         </div>
@@ -154,15 +168,27 @@ export default function CustomersPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!customerToDelete}
+        title="Delete customer"
+        message={`Are you sure you want to delete ${customerToDelete?.name || 'this customer'}?`}
+        onCancel={() => setCustomerToDelete(null)}
+        onConfirm={() => {
+          if (customerToDelete) deleteMutation.mutate(customerToDelete.id);
+        }}
+      />
     </div>
   );
 }
 
 function CustomerCard({
   customer,
+  predictions,
   onDelete,
 }: {
   customer: Customer;
+  predictions: any;
   onDelete: () => void;
 }) {
   const formatCurrency = (amount: number) =>
@@ -176,9 +202,10 @@ function CustomerCard({
             <User size={24} className="text-primary-600" />
           </div>
           <div>
-            <h3 className="font-medium text-gray-900 dark:text-white">
-              {customer.name}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-medium text-gray-900 dark:text-white">{customer.name}</h3>
+              <RiskBadges predictions={predictions} />
+            </div>
             {customer.segment && (
               <span className={clsx('badge text-xs', segmentColors[customer.segment] || 'badge-info')}>
                 {customer.segment.replace('_', ' ')}
@@ -190,12 +217,12 @@ function CustomerCard({
           <button className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
             <Edit size={16} className="text-gray-500" />
           </button>
-          <button
-            onClick={onDelete}
-            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-          >
-            <Trash2 size={16} className="text-red-500" />
-          </button>
+            <button
+              onClick={onDelete}
+              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+            >
+              <Trash2 size={16} className="text-red-500" />
+            </button>
         </div>
       </div>
 
@@ -228,10 +255,10 @@ function CustomerCard({
             {formatCurrency(customer.lifetimeValue)}
           </div>
         </div>
-        <button className="btn btn-ghost text-sm">
+        <Link href={`/customers/${customer.id}`} className="btn btn-ghost text-sm">
           <ExternalLink size={14} className="mr-1" />
           View
-        </button>
+        </Link>
       </div>
     </div>
   );

@@ -25,6 +25,25 @@ tool_call_count = Counter(
     labelnames=("agent_id", "tool_name"),
 )
 
+chat_latency_ms = Histogram(
+    "chat_latency_ms",
+    "End-to-end chat latency",
+    labelnames=("agent_id", "status"),
+    buckets=(10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
+)
+
+tool_success_total = Counter(
+    "tool_success_total",
+    "Tool execution outcomes",
+    labelnames=("agent_id", "tool_name", "status"),
+)
+
+proposal_total = Counter(
+    "proposal_total",
+    "Proposed write actions",
+    labelnames=("agent_id", "entity", "operation"),
+)
+
 error_rate = Counter(
     "agent_error_total",
     "Agent errors",
@@ -72,6 +91,63 @@ agents_running = Gauge(
     "Agent runtime running state",
 )
 
+decisions_logged_total = Counter(
+    "decisions_logged_total",
+    "Decisions persisted to the audit store",
+    labelnames=("agent_id", "action_type", "status"),
+)
+
+explanation_latency_ms = Histogram(
+    "explanation_latency_ms",
+    "Latency of explainability lookups",
+    labelnames=("status",),
+    buckets=(5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000),
+)
+
+audit_queries_total = Counter(
+    "audit_queries_total",
+    "Audit queries executed",
+    labelnames=("type",),
+)
+
+knowledge_drafts_created_total = Counter(
+    "knowledge_drafts_created_total",
+    "Knowledge drafts created",
+    labelnames=("source_type",),
+)
+
+knowledge_articles_embedded_total = Counter(
+    "knowledge_articles_embedded_total",
+    "Knowledge articles embedded into vector store",
+    labelnames=("status",),
+)
+
+# Voice / i18n metrics
+stt_latency_seconds = Histogram(
+    "stt_latency_seconds",
+    "Speech-to-text processing latency",
+    labelnames=("status",),
+    buckets=(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
+)
+
+translation_latency_seconds = Histogram(
+    "translation_latency_seconds",
+    "Translation processing latency",
+    labelnames=("direction", "status"),
+    buckets=(0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+)
+
+voice_success_rate = Gauge(
+    "voice_success_rate",
+    "Rolling success rate for voice transcriptions",
+)
+
+language_distribution = Counter(
+    "language_distribution_total",
+    "Queries by detected language",
+    labelnames=("language",),
+)
+
 
 def observe_decision_latency(*, agent_id: str, action_type: str, risk_level: str, status: str, duration_ms: float) -> None:
     decision_latency_ms.labels(agent_id=agent_id, action_type=action_type, risk_level=risk_level, status=status).observe(duration_ms)
@@ -79,6 +155,18 @@ def observe_decision_latency(*, agent_id: str, action_type: str, risk_level: str
 
 def inc_tool_call(*, agent_id: str, tool_name: str) -> None:
     tool_call_count.labels(agent_id=agent_id, tool_name=tool_name).inc()
+
+
+def observe_chat_latency(*, agent_id: str, status: str, duration_ms: float) -> None:
+    chat_latency_ms.labels(agent_id=agent_id, status=status).observe(duration_ms)
+
+
+def inc_tool_success(*, agent_id: str, tool_name: str, status: str) -> None:
+    tool_success_total.labels(agent_id=agent_id, tool_name=tool_name, status=status).inc()
+
+
+def inc_proposal(*, agent_id: str, entity: str, operation: str) -> None:
+    proposal_total.labels(agent_id=agent_id, entity=entity or "unknown", operation=operation or "unknown").inc()
 
 
 def inc_error(*, agent_id: str, error_type: str) -> None:

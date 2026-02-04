@@ -17,6 +17,7 @@ export function useWebSocket() {
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const handlersRef = useRef<Map<string, Set<MessageHandler>>>(new Map());
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
 
   const connect = useCallback(() => {
     const token = localStorage.getItem('accessToken');
@@ -59,10 +60,15 @@ export function useWebSocket() {
       console.log('WebSocket disconnected');
       setIsConnected(false);
 
-      // Reconnect after 3 seconds
+      // Exponential backoff with jitter
+      const attempt = reconnectAttemptsRef.current;
+      const base = 3000 * Math.pow(2, Math.min(attempt, 4)); // cap growth
+      const jitter = Math.floor(Math.random() * 500);
+      const delay = Math.min(20000, base + jitter);
+      reconnectAttemptsRef.current = attempt + 1;
       reconnectTimeoutRef.current = setTimeout(() => {
         connect();
-      }, 3000);
+      }, delay);
     };
 
     ws.onerror = (error) => {
@@ -81,6 +87,7 @@ export function useWebSocket() {
       wsRef.current = null;
     }
     setIsConnected(false);
+    reconnectAttemptsRef.current = 0;
   }, []);
 
   const send = useCallback((type: string, payload: any) => {

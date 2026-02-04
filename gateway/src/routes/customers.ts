@@ -66,6 +66,64 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
   }
 });
 
+// Customer timeline
+router.get('/:id/timeline',
+  query('limit').optional().isInt({ min: 1, max: 200 }),
+  async (req: AuthenticatedRequest, res: Response, next) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const customerId = req.params.id;
+      const timeline = await withTenantDb(req.tenantId!, async (db) => {
+        const exists = await db.customer.findFirst({ where: { id: customerId, tenantId: req.tenantId }, select: { id: true } });
+        if (!exists) throw notFound('Customer not found');
+        return db.customerTimeline.findMany({
+          where: { tenantId: req.tenantId!, customerId },
+          orderBy: { ts: 'desc' },
+          take: limit,
+        });
+      });
+      res.json({ data: timeline });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Customer stage + latest predictions
+router.get('/:id/profile', async (req: AuthenticatedRequest, res: Response, next) => {
+  try {
+    const customerId = req.params.id;
+    const result = await withTenantDb(req.tenantId!, async (db) => {
+      const exists = await db.customer.findFirst({ where: { id: customerId, tenantId: req.tenantId }, select: { id: true } });
+      if (!exists) throw notFound('Customer not found');
+
+      const profile = await db.customerProfile.findUnique({ where: { customerId } });
+      const preds = await db.prediction.findMany({
+        where: { tenantId: req.tenantId!, entityType: 'customer', entityId: customerId },
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+      });
+
+      const latestByType: Record<string, any> = {};
+      for (const p of preds) {
+        if (!latestByType[p.predictionType]) latestByType[p.predictionType] = p;
+      }
+
+      return { profile, predictions: Object.values(latestByType) };
+    });
+
+    res.json({
+      stage: result.profile?.stage || 'awareness',
+      confidence: result.profile?.stageConfidence || 0,
+      stageUpdatedAt: result.profile?.stageUpdatedAt || null,
+      features: result.profile?.features || {},
+      predictions: result.predictions,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Create customer
 router.post('/',
   body('name').isLength({ min: 1, max: 255 }),

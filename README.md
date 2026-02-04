@@ -189,8 +189,21 @@ docker-compose exec postgres psql -U crm_user -d enterprise_crm -f /docker-entry
 
 Our AI agents are built with **LangGraph** for orchestration and **Ollama** running **Llama 3.1** locally for privacy-first inference.
 
-<table>
+</td>
+</tr>
 <tr>
+<td align="center" width="25%">
+
+### 📚 Knowledge Agent
+
+**Self-Growing Documentation**
+
+- Auto-generates KB drafts from resolved tickets
+- Summarizes support conversations
+- Human approval workflow
+- Weaviate-embedded semantic search
+
+</td>
 <td align="center" width="25%">
 
 ### 💼 Sales Agent
@@ -227,6 +240,8 @@ Our AI agents are built with **LangGraph** for orchestration and **Ollama** runn
 - Monitors regulatory compliance
 
 </td>
+</tr>
+<tr>
 <td align="center" width="25%">
 
 ### 📊 Analytics Agent

@@ -15,9 +15,11 @@ import {
   Trash2,
   Bot
 } from 'lucide-react';
-import { ticketsApi, Ticket } from '@/lib/api';
+import { ticketsApi, Ticket, predictionsApi } from '@/lib/api';
 import { clsx } from 'clsx';
 import { format, formatDistanceToNow, isPast } from 'date-fns';
+import { RiskBadges } from '@/components/RiskBadges';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 const priorityConfig: Record<string, { color: string; label: string }> = {
   low: { color: 'badge-info', label: 'Low' },
@@ -40,6 +42,7 @@ export default function TicketsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [priorityFilter, setPriorityFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
 
   // Fetch tickets
   const { data, isLoading, error } = useQuery({
@@ -76,6 +79,7 @@ export default function TicketsPage() {
     mutationFn: (id: string) => ticketsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      setTicketToDelete(null);
     },
   });
 
@@ -90,6 +94,13 @@ export default function TicketsPage() {
           ticket.description?.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : tickets;
+
+  const predictionsQuery = useQuery({
+    queryKey: ['predictionsLatest', 'ticket', filteredTickets.map((t) => t.id).join(',')],
+    queryFn: () => predictionsApi.latest('ticket', filteredTickets.map((t) => t.id)),
+    enabled: filteredTickets.length > 0,
+  });
+  const predictionsByTicketId = predictionsQuery.data?.data?.data || {};
 
   // Stats
   const openCount = tickets.filter((t) => t.status === 'open').length;
@@ -178,13 +189,14 @@ export default function TicketsPage() {
             <TicketCard
               key={ticket.id}
               ticket={ticket}
+              predictions={predictionsByTicketId[ticket.id] || null}
               onStatusChange={(status) =>
                 updateMutation.mutate({ id: ticket.id, data: { status } })
               }
               onResolve={(resolution) =>
                 resolveMutation.mutate({ id: ticket.id, resolution })
               }
-              onDelete={() => deleteMutation.mutate(ticket.id)}
+              onDelete={() => setTicketToDelete(ticket)}
             />
           ))
         )}
@@ -215,17 +227,29 @@ export default function TicketsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!ticketToDelete}
+        title="Delete ticket"
+        message={`Are you sure you want to delete ${ticketToDelete?.subject || 'this ticket'}?`}
+        onCancel={() => setTicketToDelete(null)}
+        onConfirm={() => {
+          if (ticketToDelete) deleteMutation.mutate(ticketToDelete.id);
+        }}
+      />
     </div>
   );
 }
 
 function TicketCard({
   ticket,
+  predictions,
   onStatusChange,
   onResolve,
   onDelete,
 }: {
   ticket: Ticket;
+  predictions: any;
   onStatusChange: (status: string) => void;
   onResolve: (resolution: string) => void;
   onDelete: () => void;
@@ -261,6 +285,7 @@ function TicketCard({
                 <span className={clsx('badge', priority.color)}>
                   {priority.label}
                 </span>
+                <RiskBadges predictions={predictions} />
                 {ticket.category && (
                   <span className="badge badge-info">{ticket.category}</span>
                 )}

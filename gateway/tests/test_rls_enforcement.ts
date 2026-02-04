@@ -12,6 +12,8 @@ import { cache, tenantKey } from '../src/services/redis';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'development-secret-change-in-production';
 
+const describeDb = process.env.CRM_DB_AVAILABLE === '1' ? describe : describe.skip;
+
 const tenantA = '11111111-1111-4111-8111-111111111111';
 const tenantB = '22222222-2222-4222-8222-222222222222';
 const customerA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -23,7 +25,7 @@ function signToken(payload: Record<string, any>): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
 }
 
-describe('Tenant isolation proof (gateway)', () => {
+describeDb('Tenant isolation proof (gateway)', () => {
   beforeAll(async () => {
     await prisma.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB] } } });
     await prisma.tenant.deleteMany({ where: { slug: { in: [tenantASlug, tenantBSlug] } } });

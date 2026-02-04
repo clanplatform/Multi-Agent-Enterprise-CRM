@@ -1,24 +1,21 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bot, CheckCircle, PauseCircle, PlayCircle, Shield, XCircle } from 'lucide-react';
-import { approvalsApi, governanceApi } from '@/lib/api';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Bot, FileText, Search, Shield } from 'lucide-react';
+import { approvalsApi, auditApi, governanceApi } from '@/lib/api';
 import { clsx } from 'clsx';
 import { formatDistanceToNow } from 'date-fns';
+import { KillSwitch } from '@/components/KillSwitch';
+import { AuditSearch } from '@/components/AuditSearch';
+import { ExplainabilityPanel } from '@/components/ExplainabilityPanel';
 
-type Tab = 'kill_switch' | 'approvals' | 'decisions';
+type Tab = 'kill_switch' | 'audit_search' | 'approvals' | 'decisions' | 'policies';
 
 export default function GovernancePage() {
-  const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>('kill_switch');
   const [selectedDecisionId, setSelectedDecisionId] = useState<string | null>(null);
-
-  const killSwitchQuery = useQuery({
-    queryKey: ['governance', 'killswitch'],
-    queryFn: async () => (await governanceApi.killSwitchStatus()).data,
-    refetchInterval: 2000,
-  });
+  const queryClient = useQueryClient();
 
   const approvalsQuery = useQuery({
     queryKey: ['governance', 'approvals', 'pending'],
@@ -38,31 +35,22 @@ export default function GovernancePage() {
     enabled: !!selectedDecisionId,
   });
 
-  const pauseMutation = useMutation({
-    mutationFn: ({ reason }: { reason?: string }) => governanceApi.pauseTenantAgents(undefined, reason),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['governance', 'killswitch'] }),
-  });
-
-  const resumeMutation = useMutation({
-    mutationFn: ({ reason }: { reason?: string }) => governanceApi.resumeTenantAgents(undefined, reason),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['governance', 'killswitch'] }),
-  });
-
-  const globalStopMutation = useMutation({
-    mutationFn: ({ reason }: { reason?: string }) => governanceApi.emergencyStop(undefined, reason),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['governance', 'killswitch'] }),
+  const policiesQuery = useQuery({
+    queryKey: ['audit', 'policies'],
+    queryFn: async () => (await auditApi.policies()).data,
+    enabled: tab === 'policies',
   });
 
   const approvals = approvalsQuery.data?.data || [];
   const decisions = decisionsQuery.data?.data || [];
 
-  const activeTenantPause = useMemo(() => {
-    const status = killSwitchQuery.data;
-    if (!status) return null;
-    const entries = Object.entries(status.tenants || {});
-    const paused = entries.find(([, s]) => s.state === 'paused' || s.state === 'killed');
-    return paused ? { tenantId: paused[0], ...paused[1] } : null;
-  }, [killSwitchQuery.data]);
+  const approvalMutation = useMutation({
+    mutationFn: ({ id, decision }: { id: string; decision: 'approved' | 'rejected' }) =>
+      approvalsApi.decide(id, decision),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['governance', 'approvals', 'pending'] });
+    },
+  });
 
   return (
     <div className="space-y-6">
@@ -80,6 +68,10 @@ export default function GovernancePage() {
           <Shield size={16} className="mr-2" />
           Kill Switch
         </TabButton>
+        <TabButton tab="audit_search" current={tab} onClick={() => setTab('audit_search')}>
+          <Search size={16} className="mr-2" />
+          Audit Search
+        </TabButton>
         <TabButton tab="approvals" current={tab} onClick={() => setTab('approvals')}>
           <Bot size={16} className="mr-2" />
           Approvals
@@ -88,66 +80,15 @@ export default function GovernancePage() {
           <AlertTriangle size={16} className="mr-2" />
           Decisions
         </TabButton>
+        <TabButton tab="policies" current={tab} onClick={() => setTab('policies')}>
+          <FileText size={16} className="mr-2" />
+          Policies
+        </TabButton>
       </div>
 
-      {tab === 'kill_switch' && (
-        <div className="card p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-medium text-gray-900 dark:text-white">Current Status</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">
-                Updates every 2s
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                className="btn btn-secondary"
-                onClick={() => killSwitchQuery.refetch()}
-                disabled={killSwitchQuery.isFetching}
-              >
-                Refresh
-              </button>
-            </div>
-          </div>
+      {tab === 'kill_switch' && <KillSwitch />}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <StatusCard title="Global" value={killSwitchQuery.data?.global?.state || 'running'} />
-            <StatusCard title="Tenant Pause" value={activeTenantPause?.state || 'none'} />
-            <StatusCard title="Tenant Count" value={String(Object.keys(killSwitchQuery.data?.tenants || {}).length)} />
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="btn btn-warning"
-              onClick={() => pauseMutation.mutate({ reason: 'Paused via Governance UI' })}
-              disabled={pauseMutation.isPending}
-            >
-              <PauseCircle size={16} className="mr-2" />
-              Pause This Tenant
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={() => resumeMutation.mutate({ reason: 'Resumed via Governance UI' })}
-              disabled={resumeMutation.isPending}
-            >
-              <PlayCircle size={16} className="mr-2" />
-              Resume This Tenant
-            </button>
-            <button
-              className="btn btn-danger"
-              onClick={() => globalStopMutation.mutate({ reason: 'Emergency stop via Governance UI' })}
-              disabled={globalStopMutation.isPending}
-            >
-              <XCircle size={16} className="mr-2" />
-              Emergency Stop (Global)
-            </button>
-          </div>
-
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            Agents block actions on pause/kill within ≤1s via Redis pub/sub, and paused partitions are rewound to avoid message loss.
-          </div>
-        </div>
-      )}
+      {tab === 'audit_search' && <AuditSearch />}
 
       {tab === 'approvals' && (
         <div className="card p-6 space-y-4">
@@ -176,6 +117,22 @@ export default function GovernancePage() {
                   {a.context?.reasoning && (
                     <div className="mt-3 text-sm text-gray-700 dark:text-gray-300">{a.context.reasoning}</div>
                   )}
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      className="btn btn-secondary flex-1"
+                      onClick={() => approvalMutation.mutate({ id: a.id, decision: 'rejected' })}
+                      disabled={approvalMutation.isPending}
+                    >
+                      Reject
+                    </button>
+                    <button
+                      className="btn btn-primary flex-1"
+                      onClick={() => approvalMutation.mutate({ id: a.id, decision: 'approved' })}
+                      disabled={approvalMutation.isPending}
+                    >
+                      Approve
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -218,20 +175,39 @@ export default function GovernancePage() {
             )}
           </div>
 
-          <div className="card p-6 space-y-3">
-            <div className="font-medium text-gray-900 dark:text-white">Explainability Viewer</div>
-            {!selectedDecisionId ? (
-              <div className="text-gray-500">Select a decision to view details</div>
-            ) : decisionDetailQuery.isLoading ? (
-              <div className="text-gray-500">Loading decision...</div>
-            ) : decisionDetailQuery.data ? (
-              <pre className="text-xs bg-gray-50 dark:bg-gray-900 p-4 rounded-lg overflow-auto max-h-[540px]">
-{JSON.stringify(decisionDetailQuery.data, null, 2)}
-              </pre>
+          <div className="space-y-3">
+            {decisionDetailQuery.isLoading && selectedDecisionId ? (
+              <div className="card p-6 text-gray-500">Loading decision...</div>
             ) : (
-              <div className="text-gray-500">Decision not found</div>
+              <ExplainabilityPanel decision={decisionDetailQuery.data} />
             )}
           </div>
+        </div>
+      )}
+
+      {tab === 'policies' && (
+        <div className="card p-6 space-y-3">
+          <div className="font-medium text-gray-900 dark:text-white">Policy Visibility</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            Lists policies bundled with the deployment. Every access is logged.
+          </div>
+          {policiesQuery.isLoading ? (
+            <div className="text-gray-500">Loading...</div>
+          ) : policiesQuery.error ? (
+            <div className="text-red-600 space-y-2">
+              <div>Failed to load policies</div>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => policiesQuery.refetch()}
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <pre className="text-xs bg-gray-50 dark:bg-gray-900 p-4 rounded-lg overflow-auto max-h-[540px]">
+{JSON.stringify(policiesQuery.data, null, 2)}
+            </pre>
+          )}
         </div>
       )}
     </div>
@@ -263,17 +239,3 @@ function TabButton({
     </button>
   );
 }
-
-function StatusCard({ title, value }: { title: string; value: string }) {
-  const ok = value === 'running' || value === 'none';
-  return (
-    <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-      <div className="text-sm text-gray-500">{title}</div>
-      <div className="mt-2 flex items-center gap-2">
-        {ok ? <CheckCircle size={16} className="text-green-500" /> : <AlertTriangle size={16} className="text-yellow-500" />}
-        <div className="font-medium text-gray-900 dark:text-white">{value}</div>
-      </div>
-    </div>
-  );
-}
-

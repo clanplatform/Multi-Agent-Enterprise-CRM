@@ -2,7 +2,7 @@ import { Kafka, Producer, Consumer, EachMessagePayload, logLevel } from 'kafkajs
 import { logger } from '../utils/logger';
 import { kafkaMessagesConsumed, kafkaMessagesPublished } from './metrics';
 
-const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'localhost:9092').split(',');
+const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'localhost:9094').split(',');
 const KAFKA_CLIENT_ID = process.env.KAFKA_CLIENT_ID || 'enterprise-crm-gateway';
 
 // Create Kafka instance
@@ -15,6 +15,9 @@ const kafka = new Kafka({
     retries: 8,
   },
 });
+
+// Expose kafka client for admin/health checks
+export const kafkaClient = kafka;
 
 // Create producer
 export const kafkaProducer: Producer = kafka.producer({
@@ -148,6 +151,9 @@ export const TOPICS = {
   // Customers
   CUSTOMERS_CREATED: 'crm.customers.created',
   CUSTOMERS_UPDATED: 'crm.customers.updated',
+
+  // Payments
+  PAYMENTS_RECORDED: 'crm.payments.recorded',
   
   // Agents
   AGENTS_TASK_ASSIGNED: 'crm.agents.task-assigned',
@@ -161,13 +167,58 @@ export const TOPICS = {
 
   // Compliance
   GDPR_FORGET: 'crm.gdpr.forget',
+
+  // Conversations
+  CONVERSATION_CLOSED: 'crm.conversations.closed',
+
+  // Knowledge Base
+  KNOWLEDGE_DRAFT_CREATED: 'crm.knowledge.draft.created',
+  KNOWLEDGE_PUBLISHED: 'crm.knowledge.published',
   
   // Audit & Security
   AUDIT_EVENTS: 'crm.audit.events',
   SECURITY_EVENTS: 'crm.security.events',
+  AUDIT_ACCESSED: 'crm.audit.accessed',
+  KILLSWITCH_ACTIVATED: 'crm.killswitch.activated',
   
   // Dead Letter Queues
   DLQ_LEADS: 'crm.dlq.leads',
   DLQ_AGENTS: 'crm.dlq.agents',
   DLQ_APPROVALS: 'crm.dlq.approvals',
+
+  // Intelligence
+  INTELLIGENCE_USER_QUERY: 'crm.intelligence.user-query',
+  INTELLIGENCE_SEARCH_PERFORMED: 'crm.intelligence.search-performed',
+  INTELLIGENCE_SEARCH_CLICKED: 'crm.intelligence.search-clicked',
+  INTELLIGENCE_SEARCH_ABANDONED: 'crm.intelligence.search-abandoned',
+
+  // Productivity
+  PRODUCTIVITY_SIGNAL: 'crm.productivity.signal',
+  PRODUCTIVITY_ACTION_SUGGESTED: 'crm.productivity.action-suggested',
+  PRODUCTIVITY_ACTION_APPROVED: 'crm.productivity.action-approved',
+  PRODUCTIVITY_ACTION_REJECTED: 'crm.productivity.action-rejected',
+
+  // Journey + Predictions
+  JOURNEY_UPDATED: 'crm.journey.updated',
+  ANALYTICS_PREDICTION_GENERATED: 'crm.analytics.prediction-generated',
+
+  // Automations
+  AUTOMATION_POLICY_CREATED: 'crm.automation.policy-created',
+  AUTOMATION_POLICY_UPDATED: 'crm.automation.policy-updated',
+  AUTOMATION_SIMULATION_REQUESTED: 'crm.automation.simulation.requested',
+  AUTOMATION_SIMULATION_RESULT: 'crm.automation.simulation.result',
+  AUTOMATION_EXECUTED: 'crm.automation.executed',
+  AUTOMATION_ACTION_REQUESTED: 'crm.automation.action.requested',
+
+  // Voice & i18n
+  INTELLIGENCE_VOICE_RECEIVED: 'crm.intelligence.voice-received',
+  INTELLIGENCE_LANGUAGE_DETECTED: 'crm.intelligence.language-detected',
+
+  // Digital Twins
+  TWIN_SIMULATION_EXECUTED: 'crm.intelligence.twin-simulation-executed',
+  TWIN_PROFILE_UPDATED: 'crm.intelligence.twin-profile-updated',
+
+  // Dev Experience Agent
+  DEV_INSIGHT_GENERATED: 'crm.intelligence.dev-insight-generated',
+  DEV_ANOMALY_DETECTED: 'crm.intelligence.dev-anomaly-detected',
 };

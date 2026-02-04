@@ -2,6 +2,7 @@ import uuid
 
 import pytest
 
+
 class FakeRedis:
     def __init__(self):
         self._kv: dict[bytes, bytes] = {}

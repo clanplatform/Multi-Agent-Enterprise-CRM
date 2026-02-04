@@ -16,8 +16,11 @@ import {
   Trash2,
   Bot
 } from 'lucide-react';
-import { leadsApi, Lead } from '@/lib/api';
+import { leadsApi, Lead, predictionsApi } from '@/lib/api';
 import { clsx } from 'clsx';
+import { RiskBadges } from '@/components/RiskBadges';
+import { LeadFormModal } from '@/components/LeadFormModal';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 const statusColors: Record<string, string> = {
   new: 'badge-info',
@@ -41,6 +44,8 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
 
   // Fetch leads
   const { data, isLoading, error } = useQuery({
@@ -53,6 +58,7 @@ export default function LeadsPage() {
     mutationFn: (id: string) => leadsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leads'] });
+      setLeadToDelete(null);
     },
   });
 
@@ -69,7 +75,15 @@ export default function LeadsPage() {
       )
     : leads;
 
+  const predictionsQuery = useQuery({
+    queryKey: ['predictionsLatest', 'lead', filteredLeads.map((l) => l.id).join(',')],
+    queryFn: () => predictionsApi.latest('lead', filteredLeads.map((l) => l.id)),
+    enabled: filteredLeads.length > 0,
+  });
+  const predictionsByLeadId = predictionsQuery.data?.data?.data || {};
+
   return (
+    <>
     <div className="space-y-6">
       {/* Page header */}
       <div className="flex items-center justify-between">
@@ -220,6 +234,9 @@ export default function LeadsPage() {
                           <span className="ml-2 inline-flex" title="AI-scored" aria-label="AI-scored">
                             <Bot size={14} className="text-primary-500" />
                           </span>
+                          <span className="ml-2">
+                            <RiskBadges predictions={predictionsByLeadId[lead.id] || null} />
+                          </span>
                         </div>
                       ) : (
                         <span className="text-gray-400 text-sm">Not scored</span>
@@ -235,11 +252,14 @@ export default function LeadsPage() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
+                        <button
+                          onClick={() => setEditingLead(lead)}
+                          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                        >
                           <Edit size={16} className="text-gray-500" />
                         </button>
                         <button
-                          onClick={() => deleteMutation.mutate(lead.id)}
+                          onClick={() => setLeadToDelete(lead)}
                           className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                         >
                           <Trash2 size={16} className="text-red-500" />
@@ -280,5 +300,26 @@ export default function LeadsPage() {
         )}
       </div>
     </div>
+
+    <LeadFormModal
+      isOpen={isCreateModalOpen || !!editingLead}
+      onClose={() => {
+        setIsCreateModalOpen(false);
+        setEditingLead(null);
+      }}
+      lead={editingLead}
+    />
+
+    <ConfirmDialog
+      isOpen={!!leadToDelete}
+      title="Delete lead"
+      message={`Are you sure you want to delete ${leadToDelete?.name || 'this lead'}?`}
+      onCancel={() => setLeadToDelete(null)}
+      onConfirm={() => {
+        if (leadToDelete) deleteMutation.mutate(leadToDelete.id);
+      }}
+    />
+
+    </>
   );
 }

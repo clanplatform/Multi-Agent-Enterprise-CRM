@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { 
   Bot,
@@ -59,17 +59,33 @@ export default function AgentsPage() {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   // Fetch agents
-  const { data: agentsData, isLoading: agentsLoading } = useQuery({
+  const { data: agentsData, isLoading: agentsLoading, error: agentsError, refetch: refetchAgents } = useQuery({
     queryKey: ['agents'],
-    queryFn: () => api.get<{ data: Agent[] }>('/agents'),
+    queryFn: () => api.get<{ data: Agent[] }>('/api/v1/agents'),
   });
+  const [agentsTimedOut, setAgentsTimedOut] = useState(false);
+  useEffect(() => {
+    if (agentsLoading) {
+      const id = setTimeout(() => setAgentsTimedOut(true), 10000);
+      return () => clearTimeout(id);
+    }
+    setAgentsTimedOut(false);
+  }, [agentsLoading]);
 
   // Fetch events for selected agent
-  const { data: eventsData, isLoading: eventsLoading } = useQuery({
+  const { data: eventsData, isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useQuery({
     queryKey: ['agent-events', selectedAgent],
-    queryFn: () => api.get<{ data: AgentEvent[] }>(`/agents/${selectedAgent}/events`),
+    queryFn: () => api.get<{ data: AgentEvent[] }>(`/api/v1/agents/${selectedAgent}/events`),
     enabled: !!selectedAgent,
   });
+  const [eventsTimedOut, setEventsTimedOut] = useState(false);
+  useEffect(() => {
+    if (eventsLoading) {
+      const id = setTimeout(() => setEventsTimedOut(true), 10000);
+      return () => clearTimeout(id);
+    }
+    setEventsTimedOut(false);
+  }, [eventsLoading]);
 
   const agents = agentsData?.data.data || [];
   const events = eventsData?.data.data || [];
@@ -95,6 +111,19 @@ export default function AgentsPage() {
 
           {agentsLoading ? (
             <div className="card p-4 text-center text-gray-500">Loading agents...</div>
+          ) : agentsTimedOut || agentsError ? (
+            <div className="card p-4 text-center text-red-500 space-y-2">
+              <div>{agentsTimedOut ? 'Request timed out' : 'Failed to load agents'}</div>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  setAgentsTimedOut(false);
+                  refetchAgents();
+                }}
+              >
+                Retry
+              </button>
+            </div>
           ) : (
             agents.map((agent) => {
               const Icon = agentIcons[agent.type] || Bot;
@@ -154,7 +183,11 @@ export default function AgentsPage() {
                 <h2 className="font-semibold text-gray-900 dark:text-white">
                   Recent Activity
                 </h2>
-                <button className="btn btn-ghost text-sm">
+                <button
+                  className="btn btn-ghost text-sm"
+                  onClick={() => selectedAgent && refetchEvents()}
+                  disabled={eventsLoading}
+                >
                   <RefreshCw size={14} className="mr-2" />
                   Refresh
                 </button>
@@ -162,6 +195,19 @@ export default function AgentsPage() {
 
               {eventsLoading ? (
                 <div className="card p-8 text-center text-gray-500">Loading events...</div>
+              ) : eventsTimedOut || eventsError ? (
+                <div className="card p-8 text-center text-red-500 space-y-2">
+                  <div>{eventsTimedOut ? 'Request timed out' : 'Failed to load events'}</div>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      setEventsTimedOut(false);
+                      refetchEvents();
+                    }}
+                  >
+                    Retry
+                  </button>
+                </div>
               ) : events.length === 0 ? (
                 <div className="card p-8 text-center text-gray-500">No recent activity</div>
               ) : (

@@ -18,10 +18,25 @@ class Settings:
         "crm.leads.created",
         "crm.leads.updated",
         "crm.deals.created",
+        "crm.deals.updated",
         "crm.deals.stage-changed",
+        "crm.deals.closed",
         "crm.tickets.created",
         "crm.tickets.updated",
+        "crm.tickets.resolved",
+        "crm.tickets.sla-breached",
+        "crm.conversations.closed",
+        "crm.customers.created",
+        "crm.customers.updated",
+        "crm.tasks.updated",
+        "crm.user.activity",
+        "crm.productivity.signal",
+        "crm.journey.updated",
+        "crm.analytics.prediction-generated",
         "crm.approvals.decision",
+        "crm.payments.recorded",
+        "crm.automation.simulation.requested",
+        "crm.knowledge.published",
     ]
     
     # Ollama (LLM)
@@ -29,7 +44,7 @@ class Settings:
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1")
     
     # Weaviate (Vector Store)
-    WEAVIATE_URL: str = os.getenv("WEAVIATE_URL", "http://localhost:8080")
+    WEAVIATE_URL: str = os.getenv("WEAVIATE_URL", "http://localhost:8082")
     
     # OPA (Policy Engine)
     OPA_URL: str = os.getenv("OPA_URL", "http://localhost:8181")
@@ -37,8 +52,11 @@ class Settings:
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://localhost:5432/enterprise_crm")
 
+    # Gateway (CRM HTTP API)
+    GATEWAY_URL: str = os.getenv("GATEWAY_URL", "http://localhost:4000")
+
     # Redis
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://redis:6379")
     
     # Health check
     HEALTH_PORT: int = int(os.getenv("AGENTS_PORT", "5010"))

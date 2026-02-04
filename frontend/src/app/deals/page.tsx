@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Plus, 
@@ -43,10 +43,19 @@ export default function DealsPage() {
   const [stageFilter, setStageFilter] = useState<string>('');
 
   // Fetch deals
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['deals', page, stageFilter],
     queryFn: () => dealsApi.list({ page, limit: 50, stage: stageFilter || undefined }),
   });
+  const [timedOut, setTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (isLoading) {
+      const id = setTimeout(() => setTimedOut(true), 10000);
+      return () => clearTimeout(id);
+    }
+    setTimedOut(false);
+  }, [isLoading]);
 
   // Update stage mutation
   const updateStageMutation = useMutation({
@@ -126,10 +135,15 @@ export default function DealsPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {isLoading || isFetching ? (
         <div className="p-8 text-center text-gray-500">Loading deals...</div>
-      ) : error ? (
-        <div className="p-8 text-center text-red-500">Failed to load deals</div>
+      ) : timedOut || error ? (
+        <div className="p-8 text-center text-red-500 space-y-3">
+          <div>{timedOut ? 'Request timed out' : 'Failed to load deals'}</div>
+          <button className="btn btn-secondary" onClick={() => { setTimedOut(false); refetch(); }}>
+            Retry
+          </button>
+        </div>
       ) : view === 'pipeline' ? (
         /* Pipeline view */
         <div className="flex gap-4 overflow-x-auto pb-4">

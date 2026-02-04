@@ -4,6 +4,7 @@ import fnmatch
 import pytest
 
 
+
 class FakePubSub:
     def __init__(self, redis):
         self._redis = redis
