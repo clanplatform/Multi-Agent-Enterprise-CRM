@@ -1,12 +1,32 @@
 'use client';
 
-import { Bell, User, Moon, Sun } from 'lucide-react';
+import { Bell, User, Moon, Sun, LogOut } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { CommandBar } from '@/components/CommandBar';
 
 export function Header() {
+  const router = useRouter();
   const [darkMode, setDarkMode] = useState(false);
   const [notifications, setNotifications] = useState(3);
+  // Was hardcoded to "John Doe / Sales Manager"; now reflects whoever signed in.
+  const [account, setAccount] = useState<{ name?: string; email?: string; roles?: string[] } | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      if (raw) setAccount(JSON.parse(raw));
+    } catch {
+      // ignore malformed value
+    }
+  }, []);
+
+  const signOut = () => {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
+    router.replace('/login');
+  };
 
   useEffect(() => {
     if (darkMode) {
@@ -47,14 +67,22 @@ export function Header() {
         <div className="flex items-center gap-3 pl-4 border-l border-gray-200 dark:border-gray-700">
           <div className="text-right hidden sm:block">
             <div className="text-sm font-medium text-gray-900 dark:text-white">
-              John Doe
+              {account?.name || 'Not signed in'}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
-              Sales Manager
+              {account?.roles?.join(', ') || account?.email || '-'}
             </div>
           </div>
           <button className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
             <User size={20} className="text-primary-600" />
+          </button>
+          <button
+            onClick={signOut}
+            title="Sign out"
+            aria-label="Sign out"
+            className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <LogOut size={18} />
           </button>
         </div>
       </div>

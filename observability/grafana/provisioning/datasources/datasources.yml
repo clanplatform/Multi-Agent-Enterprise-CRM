@@ -6,3 +6,12 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+
+  # Loki runs in docker-compose but was never wired into Grafana here: the only
+  # Loki datasource in the repo lives in ../datasources.yaml, which is a
+  # Kubernetes ConfigMap. Grafana's file provisioner reads this directory only,
+  # so that file is ignored and Loki ended up orphaned.
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100

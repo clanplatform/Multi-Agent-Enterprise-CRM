@@ -93,7 +93,16 @@ class SearchAgent:
             )
 
             try:
-                out: SearchState = await self._graph.ainvoke(state)
+                raw_out: Any = await self._graph.ainvoke(state)
+                # Current LangGraph returns the final state as a mapping, while
+                # this code reads it as a SearchState (out.ranked, out.intent,
+                # ...). Rehydrate the dataclass so the accesses below are valid
+                # on either version. Same drift as in automation_agent.py.
+                out: SearchState = (
+                    SearchState(**{k: v for k, v in raw_out.items() if k in SearchState.__dataclass_fields__})
+                    if isinstance(raw_out, dict)
+                    else raw_out
+                )
             except Exception as e:
                 error_rate.labels(agent_id=self.agent_id, error_type="search_graph_failed").inc()
                 await self._emit_event(

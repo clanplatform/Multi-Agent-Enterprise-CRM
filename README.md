@@ -154,22 +154,54 @@
 ### 🐳 One-Command Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/Mrgig7/Multi-Agent-Enterprise-CRM.git
 cd Multi-Agent-Enterprise-CRM
 
-# Copy environment configuration
-cp .env.example .env
-
-# Launch the entire stack
-docker-compose up -d
-
-# Run database migrations
-docker-compose exec gateway npx prisma migrate deploy
-
-# Apply RLS policies
-docker-compose exec postgres psql -U crm_user -d enterprise_crm -f /docker-entrypoint-initdb.d/02-rls-policies.sql
+./scripts/bootstrap.sh
 ```
+
+That is the whole setup. It is idempotent, so re-run it any time. On Windows use
+Git Bash (`bash scripts/bootstrap.sh`).
+
+The script creates `.env`, starts the stack, pre-creates the Kafka topics, runs
+the Prisma migrations, applies the RLS policies, registers the AI agents, and
+pulls the Ollama models. The first run downloads ~5GB of models and takes a
+while; skip that with:
+
+```bash
+./scripts/bootstrap.sh --no-ai      # no Ollama/agents, AI screens inactive
+```
+
+**Before the first run**, if port 5432 is already used by a local PostgreSQL, or
+you have no NVIDIA GPU, copy the override and uncomment the relevant block:
+
+```bash
+cp docker-compose.override.yml.example docker-compose.override.yml
+```
+
+#### Create your first account
+
+There are no seeded users. Register a tenant, then sign in at
+http://localhost:3000/login:
+
+```bash
+curl -X POST http://localhost:4000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"tenantName":"Acme Corp","tenantSlug":"acme","email":"admin@acme.test","password":"SuperSecret123","name":"Acme Admin"}'
+```
+
+#### Day-to-day
+
+```bash
+docker compose ps                      # what is running
+docker compose logs -f gateway agents  # follow logs
+docker compose down                    # stop (keeps data)
+docker compose down -v                 # stop and wipe all data
+```
+
+> **Note on CPU-only machines:** without an NVIDIA GPU, Ollama runs on CPU and a
+> single LLM response takes 20-60s. The chat panel and Automation Studio work but
+> feel slow. `llama3.2:3b` is substantially faster if you prefer.
 
 ### 🌐 Access Points
 

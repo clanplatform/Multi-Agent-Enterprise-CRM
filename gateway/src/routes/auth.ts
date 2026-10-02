@@ -27,7 +27,9 @@ router.post('/login',
       const { email, password, tenantSlug } = req.body;
 
       const { user, roles } = await prisma.$transaction(async (db: Prisma.TransactionClient) => {
-        await db.$executeRaw`SET LOCAL app.tenant_id = ${SYSTEM_TENANT_ID}`;
+        // set_config() instead of SET LOCAL: SET cannot take bind parameters,
+        // which $executeRaw always emits. See services/prisma.ts.
+        await db.$executeRaw`SELECT set_config('app.tenant_id', ${SYSTEM_TENANT_ID}, true)`;
 
         const tenant = await db.tenant.findUnique({
           where: { slug: tenantSlug },
@@ -37,7 +39,7 @@ router.post('/login',
           throw unauthorized('Invalid credentials');
         }
 
-        await db.$executeRaw`SET LOCAL app.tenant_id = ${tenant.id}`;
+        await db.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
 
         const user = await db.user.findFirst({
           where: { email, tenantId: tenant.id },
@@ -129,7 +131,7 @@ router.post('/refresh',
       }
       
       const user = await prisma.$transaction(async (db: Prisma.TransactionClient) => {
-        await db.$executeRaw`SET LOCAL app.tenant_id = ${tenantId}`;
+        await db.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
         return db.user.findFirst({
           where: { id: userId, tenantId },
           include: {
@@ -218,7 +220,7 @@ router.post('/register',
       
       // Create tenant, user, and admin role in transaction
       const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        await tx.$executeRaw`SET LOCAL app.tenant_id = ${SYSTEM_TENANT_ID}`;
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${SYSTEM_TENANT_ID}, true)`;
         // Create tenant
         const tenant = await tx.tenant.create({
           data: {
@@ -228,7 +230,7 @@ router.post('/register',
           },
         });
 
-        await tx.$executeRaw`SET LOCAL app.tenant_id = ${tenant.id}`;
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
         
         // Create admin role
         const adminRole = await tx.role.create({

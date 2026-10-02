@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 
 const AGENTS_URL = (process.env.AGENTS_URL || 'http://localhost:5010').replace(/\/$/, '');
+import { agentsTimeout } from '../services/agentsTimeout';
 
 // Extend Request type to include file from multer
 interface MulterRequest extends AuthenticatedRequest {
@@ -99,7 +100,7 @@ router.post(
         `${AGENTS_URL}/api/v1/intelligence/voice`,
         audioBuffer,
         {
-          timeout: 30000, // 30s timeout for STT
+          timeout: agentsTimeout(30000), // 30s timeout for STT
           headers: {
             'Content-Type': req.file.mimetype,
             'X-Audio-Format': audioFormat,
@@ -178,7 +179,7 @@ router.post(
         `${AGENTS_URL}/api/v1/intelligence/voice/query`,
         audioBuffer,
         {
-          timeout: 45000, // 45s for full pipeline
+          timeout: agentsTimeout(45000), // 45s for full pipeline
           headers: {
             'Content-Type': req.file.mimetype,
             'X-Audio-Format': audioFormat,

@@ -37,9 +37,35 @@ class AutomationAgent:
 
             state = AutomationState(nl_rule_text=nl_rule_text)
             out: Any = await self._graph.ainvoke(state)
-            workflow = out.workflow.model_dump() if out.workflow else {"trigger": "customer_updated", "conditions": [], "actions": []}
-            compiled = out.compiled.to_dict() if out.compiled else {"trigger_type": "customer_updated", "trigger_topics": [], "conditions": [], "actions": [], "warnings": ["missing_compiled"]}
-            warnings = out.warnings or []
+
+            # LangGraph returns the final state as a MAPPING in current versions.
+            # This code was written against the <0.1 line, where ainvoke handed
+            # back the state object itself -- hence "'dict' object has no
+            # attribute 'workflow'". requirements.txt only pins langgraph>=0.0.50,
+            # so the installed version drifted past that behaviour. Read both.
+            def _field(key: str) -> Any:
+                if isinstance(out, dict):
+                    return out.get(key)
+                return getattr(out, key, None)
+
+            raw_workflow = _field("workflow")
+            raw_compiled = _field("compiled")
+
+            if raw_workflow is None:
+                workflow = {"trigger": "customer_updated", "conditions": [], "actions": []}
+            elif isinstance(raw_workflow, dict):
+                workflow = raw_workflow
+            else:
+                workflow = raw_workflow.model_dump()
+
+            if raw_compiled is None:
+                compiled = {"trigger_type": "customer_updated", "trigger_topics": [], "conditions": [], "actions": [], "warnings": ["missing_compiled"]}
+            elif isinstance(raw_compiled, dict):
+                compiled = raw_compiled
+            else:
+                compiled = raw_compiled.to_dict()
+
+            warnings = _field("warnings") or []
             return AutomationParseResponse(
                 trigger_type=str(compiled.get("trigger_type") or workflow.get("trigger") or "customer_updated"),
                 workflow=workflow,

@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 
 const AGENTS_URL = (process.env.AGENTS_URL || 'http://localhost:5010').replace(/\/$/, '');
+import { agentsTimeout } from '../services/agentsTimeout';
 
 // Roles allowed to view DevX insights (engineers only)
 const DEVX_ROLES = ['admin', 'super_admin', 'engineer', 'sre'];
@@ -35,7 +36,7 @@ router.get(
       const correlationId = (req.headers['x-correlation-id'] as string) || uuidv4();
 
       const response = await axios.get(`${AGENTS_URL}/api/v1/intelligence/devx/insights`, {
-        timeout: 5000,
+        timeout: agentsTimeout(5000),
         headers: {
           'Content-Type': 'application/json',
           'X-User-Id': req.user?.sub,
@@ -76,7 +77,7 @@ router.get(
       const response = await axios.get(
         `${AGENTS_URL}/api/v1/intelligence/devx/insights/${insightId}`,
         {
-          timeout: 5000,
+          timeout: agentsTimeout(5000),
           headers: {
             'Content-Type': 'application/json',
             'X-User-Id': req.user?.sub,
@@ -119,7 +120,7 @@ router.post(
         `${AGENTS_URL}/api/v1/intelligence/devx/insights/${insightId}/acknowledge`,
         { user_id: req.user?.sub },
         {
-          timeout: 5000,
+          timeout: agentsTimeout(5000),
           headers: {
             'Content-Type': 'application/json',
             'X-User-Id': req.user?.sub,
@@ -162,7 +163,7 @@ router.post(
         `${AGENTS_URL}/api/v1/intelligence/devx/insights/${insightId}/resolve`,
         {},
         {
-          timeout: 5000,
+          timeout: agentsTimeout(5000),
           headers: {
             'Content-Type': 'application/json',
             'X-User-Id': req.user?.sub,
@@ -195,7 +196,7 @@ router.get(
       const correlationId = (req.headers['x-correlation-id'] as string) || uuidv4();
 
       const response = await axios.get(`${AGENTS_URL}/api/v1/intelligence/devx/health`, {
-        timeout: 5000,
+        timeout: agentsTimeout(5000),
         headers: {
           'Content-Type': 'application/json',
           'X-User-Id': req.user?.sub,

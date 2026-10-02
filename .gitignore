@@ -170,3 +170,6 @@ models/
 # Temporary files
 tmp/
 temp/
+
+# Machine-specific compose overrides (see docker-compose.override.yml.example)
+docker-compose.override.yml

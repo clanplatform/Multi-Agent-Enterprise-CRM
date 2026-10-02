@@ -10,6 +10,7 @@ import { auditQueriesTotal } from '../services/metrics';
 const router = Router();
 
 const AGENTS_URL = (process.env.AGENTS_URL || 'http://localhost:5010').replace(/\/$/, '');
+import { agentsTimeout } from '../services/agentsTimeout';
 
 function requireAuditRole(req: AuthenticatedRequest): void {
   const roles = req.user?.roles || [];
@@ -48,7 +49,7 @@ router.post(
           riskLevel: req.body.riskLevel,
         },
         {
-          timeout: 7000,
+          timeout: agentsTimeout(7000),
           headers: {
             'Content-Type': 'application/json',
             'X-Tenant-Id': req.tenantId,

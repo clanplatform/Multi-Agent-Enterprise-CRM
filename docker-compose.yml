@@ -36,6 +36,19 @@ services:
       - JWT_SECRET=supersecret
       - KEYCLOAK_URL=http://keycloak:8080
       - REPLAY_SERVICE_URL=http://replay-service:5011
+      # Every AI route (automations, audit, devx, intelligence, twins, voice)
+      # proxies to the agents service through this. Without it the code falls
+      # back to http://localhost:5010, which inside this container is the
+      # gateway itself -> ECONNREFUSED on every AI call.
+      - AGENTS_URL=http://agents:5010
+      # Raise if Ollama runs CPU-only: one generation can take 20-60s, while the
+      # per-route axios defaults are 2.5s-10s.
+      - AGENTS_TIMEOUT_MS=${AGENTS_TIMEOUT_MS:-180000}
+    volumes:
+      # GET /api/v1/audit/policies walks ./policies relative to cwd, but this
+      # image builds from the ./gateway context so the repo-root policies/ dir
+      # is not in it. OPA gets these by mount; the gateway needs them too.
+      - ./policies:/app/policies:ro
     depends_on:
       - postgres
       - redis
@@ -132,6 +145,10 @@ services:
       - WEAVIATE_URL=http://weaviate:8080
       - OPA_URL=http://opa:8181
       - DATABASE_URL=postgresql://crm_user:crm_password@postgres:5432/enterprise_crm
+      # Python buffers stdout when it is not a tty, so without this the
+      # service's structlog output never reaches `docker compose logs` and
+      # failures are invisible.
+      - PYTHONUNBUFFERED=1
     depends_on:
       - kafka
       - weaviate

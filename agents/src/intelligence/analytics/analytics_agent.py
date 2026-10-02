@@ -58,8 +58,11 @@ class PredictiveAnalyticsAgent(BaseAgent):
                 async with conn.transaction():
                     await conn.execute("SELECT set_config('app.tenant_id', $1, true)", tenant_id)
                     graph = build_analytics_graph(deps=AnalyticsDeps(conn=conn))
-                    out: AnalyticsState = await graph.ainvoke(AnalyticsState(tenant_id=tenant_id, journey_event=event))
-                    predictions = out.predictions or []
+                    out: Any = await graph.ainvoke(AnalyticsState(tenant_id=tenant_id, journey_event=event))
+                    # Current LangGraph returns the final state as a mapping, not
+                    # the state object this code was written against. See the same
+                    # note in intelligence/automation/automation_agent.py.
+                    predictions = (out.get("predictions") if isinstance(out, dict) else getattr(out, "predictions", None)) or []
 
                     emitted = 0
                     for p in predictions:

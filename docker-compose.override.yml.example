@@ -1,0 +1,27 @@
+# Machine-specific overrides. Copy to docker-compose.override.yml and edit;
+# docker compose picks that file up automatically and it is gitignored, so your
+# local tweaks never reach other developers.
+#
+# Everything that EVERY developer needs lives in docker-compose.yml itself.
+# Only put host-specific adjustments here.
+
+services:
+  # --- Uncomment if port 5432 is already taken by a local PostgreSQL install ---
+  # The container keeps serving on 5432 inside the crm-network, so no other
+  # service config changes; only your host-side tools use 5433.
+  # `!override` REPLACES the base list -- a plain list would be APPENDED, and the
+  # container would try to publish 5432 as well and clash all the same.
+  #
+  # postgres:
+  #   ports: !override
+  #     - "5433:5432"
+
+  # --- Uncomment if you do NOT have an NVIDIA GPU ---
+  # docker-compose.yml reserves one for Ollama. Without a GPU the container
+  # fails to start with:
+  #   nvidia-container-cli: WSL environment detected but no adapters were found
+  # `!reset null` removes the key; an empty map would merge and leave it in place.
+  # Expect 20-60s per LLM response on CPU.
+  #
+  # ollama:
+  #   deploy: !reset null

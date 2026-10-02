@@ -35,7 +35,12 @@ export const withTenantDb = async <T>(
   }
 
   return prisma.$transaction(async (db: Prisma.TransactionClient) => {
-    await db.$executeRaw`SET LOCAL app.tenant_id = ${tenantId}`;
+    // NOTE: `SET LOCAL app.tenant_id = ${tenantId}` does not work. SET is a
+    // utility statement and cannot take bind parameters, but $executeRaw
+    // parameterises ${...} into $1, so Postgres rejects it with
+    // 42601 "syntax error at or near $1". set_config() is a normal function,
+    // so it accepts the parameter; is_local=true matches SET LOCAL semantics.
+    await db.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
     return fn(db);
   });
 };

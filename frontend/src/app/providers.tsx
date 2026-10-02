@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { TelemetryProvider } from '@/components/TelemetryProvider';
+import { AuthGuard } from '@/components/AuthGuard';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -36,7 +37,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <TelemetryProvider>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <AuthGuard>{children}</AuthGuard>
       </QueryClientProvider>
     </TelemetryProvider>
   );

@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 
 const AGENTS_URL = (process.env.AGENTS_URL || 'http://localhost:5010').replace(/\/$/, '');
+import { agentsTimeout } from '../services/agentsTimeout';
 
 // Allowed scenarios
 const ALLOWED_SCENARIOS = [
@@ -58,7 +59,7 @@ router.get(
       const response = await axios.get(
         `${AGENTS_URL}/api/v1/intelligence/twins/${customerId}`,
         {
-          timeout: 5000,
+          timeout: agentsTimeout(5000),
           headers: {
             'Content-Type': 'application/json',
             'X-Tenant-Id': req.tenantId,
@@ -110,7 +111,7 @@ router.post(
           params: params || {},
         },
         {
-          timeout: 10000,
+          timeout: agentsTimeout(10000),
           headers: {
             'Content-Type': 'application/json',
             'X-Tenant-Id': req.tenantId,
@@ -169,7 +170,7 @@ router.get(
       const response = await axios.get(
         `${AGENTS_URL}/api/v1/intelligence/twins/${customerId}/history`,
         {
-          timeout: 5000,
+          timeout: agentsTimeout(5000),
           headers: {
             'Content-Type': 'application/json',
             'X-Tenant-Id': req.tenantId,

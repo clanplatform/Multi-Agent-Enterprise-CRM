@@ -15,12 +15,26 @@ const normalizeEndpoint = (endpoint: string) => {
   return `${API_PREFIX}${path}`;
 };
 
+const DEFAULT_TIMEOUT_MS = 10000;
+
+// LLM-backed routes are proxied to the agents service and answered by Ollama.
+// On a CPU-only deployment one generation takes 20-60s, so the 10s default
+// aborted them client-side before the model replied -- the chat panel rendered
+// "I couldn't complete that request" and the automation studio silently failed.
+const LLM_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_LLM_TIMEOUT_MS) || 180000;
+const LLM_PATHS = ['/intelligence', '/automations', '/audit/search', '/knowledge'];
+
+const defaultTimeoutFor = (path: string): number =>
+  LLM_PATHS.some((p) => path.includes(p)) ? LLM_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+
+type ReqOptions = RequestInit & { timeoutMs?: number };
+
 class ApiClient {
-  private async request<T>(endpoint: string, options?: RequestInit & { timeoutMs?: number }): Promise<{ data: T }> {
+  private async request<T>(endpoint: string, options?: ReqOptions): Promise<{ data: T }> {
     const normalized = normalizeEndpoint(endpoint);
     const url = `${BASE_URL}${normalized}`;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), options?.timeoutMs ?? 10000);
+    const timeout = setTimeout(() => controller.abort(), options?.timeoutMs ?? defaultTimeoutFor(normalized));
     const token = typeof window !== 'undefined' ? window.localStorage.getItem('accessToken') : null;
     const headers = {
       'Content-Type': 'application/json',
@@ -65,11 +79,11 @@ class ApiClient {
     }
   }
 
-  get<T>(endpoint: string, options?: RequestInit): Promise<{ data: T }> {
+  get<T>(endpoint: string, options?: ReqOptions): Promise<{ data: T }> {
     return this.request<T>(endpoint, { ...options, method: 'GET' });
   }
 
-  post<T>(endpoint: string, body: any, options?: RequestInit): Promise<{ data: T }> {
+  post<T>(endpoint: string, body: any, options?: ReqOptions): Promise<{ data: T }> {
     return this.request<T>(endpoint, {
       ...options,
       method: 'POST',
@@ -77,7 +91,7 @@ class ApiClient {
     });
   }
 
-  put<T>(endpoint: string, body: any, options?: RequestInit): Promise<{ data: T }> {
+  put<T>(endpoint: string, body: any, options?: ReqOptions): Promise<{ data: T }> {
     return this.request<T>(endpoint, {
       ...options,
       method: 'PUT',
@@ -85,7 +99,7 @@ class ApiClient {
     });
   }
 
-  patch<T>(endpoint: string, body: any, options?: RequestInit): Promise<{ data: T }> {
+  patch<T>(endpoint: string, body: any, options?: ReqOptions): Promise<{ data: T }> {
     return this.request<T>(endpoint, {
       ...options,
       method: 'PATCH',
@@ -93,7 +107,7 @@ class ApiClient {
     });
   }
 
-  delete<T>(endpoint: string, options?: RequestInit): Promise<{ data: T }> {
+  delete<T>(endpoint: string, options?: ReqOptions): Promise<{ data: T }> {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
   }
 }

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# asyncio.gather is used in the retrieve node below but was never imported, so
+# every search/chat query raised NameError: name 'asyncio' is not defined. The
+# caller catches that and reports a generic "search_failed", which surfaced in
+# the UI as "I couldn't complete that request."
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 

@@ -11,6 +11,7 @@ import { automationsActive } from '../services/metrics';
 const router = Router();
 
 const AGENTS_URL = (process.env.AGENTS_URL || 'http://localhost:5010').replace(/\/$/, '');
+import { agentsTimeout } from '../services/agentsTimeout';
 
 router.get(
   '/',
@@ -109,7 +110,7 @@ router.post(
         `${AGENTS_URL}/api/v1/automation/parse`,
         { nl_rule_text: req.body.nlRuleText },
         {
-          timeout: 5000,
+          timeout: agentsTimeout(5000),
           headers: {
             'Content-Type': 'application/json',
             'X-Tenant-Id': req.tenantId,
@@ -141,7 +142,7 @@ router.post(
         `${AGENTS_URL}/api/v1/automation/parse`,
         { nl_rule_text: req.body.nlRuleText },
         {
-          timeout: 5000,
+          timeout: agentsTimeout(5000),
           headers: {
             'Content-Type': 'application/json',
             'X-Tenant-Id': req.tenantId,
@@ -205,7 +206,7 @@ router.put(
         `${AGENTS_URL}/api/v1/automation/parse`,
         { nl_rule_text: req.body.nlRuleText },
         {
-          timeout: 5000,
+          timeout: agentsTimeout(5000),
           headers: {
             'Content-Type': 'application/json',
             'X-Tenant-Id': req.tenantId,

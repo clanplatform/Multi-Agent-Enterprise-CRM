@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 
 const AGENTS_URL = (process.env.AGENTS_URL || 'http://localhost:5010').replace(/\/$/, '');
+import { agentsTimeout } from '../services/agentsTimeout';
 
 const queryValidators = [
   body('query').isString().isLength({ min: 1, max: 500 }),
@@ -42,7 +43,7 @@ const handleQuery = async (req: AuthenticatedRequest, res: Response, next: NextF
 
     const t0 = Date.now();
     const response = await axios.post(`${AGENTS_URL}/api/v1/intelligence/query`, req.body, {
-      timeout: 2500,
+      timeout: agentsTimeout(2500),
       headers: {
         'Content-Type': 'application/json',
         'X-Tenant-Id': req.tenantId,

@@ -1,10 +1,14 @@
 FROM node:20-bullseye AS builder
 WORKDIR /app
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl libssl1.1 \
-  && rm -rf /var/lib/apt/lists/*
 
-
+# NOTE: there used to be an `apt-get install openssl libssl1.1` here. Debian 11
+# (bullseye) is EOL: its security index still advertises openssl
+# 1.1.1w-0+deb11u8 but the .deb files have moved to archive.debian.org, so
+# apt-get update succeeds and the download 404s, failing the build for everyone:
+#   E: Failed to fetch .../libssl1.1_1.1.1w-0+deb11u8_amd64.deb  404  Not Found
+# It was redundant anyway -- apt reported "0 newly installed", i.e. the base
+# image already ships the libssl1.1 that Prisma's debian-openssl-1.1.x engine
+# needs.
 
 COPY package*.json ./
 COPY prisma ./prisma/

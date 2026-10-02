@@ -81,6 +81,12 @@ class HybridRetriever:
         like = f"%{q}%"
         filters = filters or {}
         status = filters.get("status")
+        # The intent parser routinely answers with a sentinel ("all"/"any") to
+        # mean "do not filter by status". Passing that straight into
+        # `status = $3` matches no row -- every search returned 0 results even
+        # when the record was plainly there. Treat the sentinels as no filter.
+        if isinstance(status, str) and status.strip().lower() in {"all", "any", "none", "*", ""}:
+            status = None
         per_entity = max(3, int(limit / 2))
 
         out: list[RetrievedResult] = []
